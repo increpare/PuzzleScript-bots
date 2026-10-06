@@ -3,57 +3,80 @@ const path = require('node:path');
 const { Worker } = require('node:worker_threads');
 
 function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = () => {} } = {}) {
-  const workers = [];           // {worker, pending: Map<id, {resolve, reject, timer}>, games: Set}
+  // entry: {worker, queue: item[], inflight: item|null, games: Set}
+  // item:  {id, gameId, op, args, deadlineMs, resolve, reject, timer}
+  const workers = [];
   const gameToWorker = new Map();
   let nextId = 1;
   let rr = 0;
   let closed = false;
 
   function spawn() {
-    const entry = { worker: new Worker(path.join(__dirname, 'worker.js')), pending: new Map(), games: new Set() };
+    const entry = { worker: new Worker(path.join(__dirname, 'worker.js')), queue: [], inflight: null, games: new Set() };
     entry.worker.on('message', (msg) => {
-      const p = entry.pending.get(msg.id);
-      if (!p) return;
-      entry.pending.delete(msg.id);
-      clearTimeout(p.timer);
-      if (msg.ok) p.resolve(msg.result);
-      else p.reject(Object.assign(new Error(msg.error.message), { name: msg.error.name }));
+      const item = entry.inflight;
+      if (!item || item.id !== msg.id) return;
+      clearTimeout(item.timer);
+      entry.inflight = null;
+      if (msg.ok) item.resolve(msg.result);
+      else item.reject(Object.assign(new Error(msg.error.message), { name: msg.error.name }));
+      pump(entry);
     });
     entry.worker.on('error', (err) => kill(entry, err));
-    entry.worker.on('exit', () => { if (!closed && workers.includes(entry)) kill(entry, new Error('worker exited')); });
+    entry.worker.on('exit', () => { if (!closed) kill(entry, new Error('worker exited')); });
     return entry;
+  }
+
+  // Reject everything pending on an entry (inflight first, then queued).
+  function rejectAll(entry, reason) {
+    const items = entry.inflight ? [entry.inflight, ...entry.queue] : entry.queue.slice();
+    if (entry.inflight) clearTimeout(entry.inflight.timer);
+    entry.inflight = null;
+    entry.queue = [];
+    for (const it of items) it.reject(reason);
   }
 
   function kill(entry, reason) {
     const idx = workers.indexOf(entry);
     if (idx === -1) return;
     workers.splice(idx, 1);
-    for (const p of entry.pending.values()) { clearTimeout(p.timer); p.reject(reason); }
-    entry.pending.clear();
+    rejectAll(entry, reason);
     const evicted = [];
-    for (const g of entry.games) { gameToWorker.delete(g); evicted.push(g); }
+    for (const g of entry.games) {
+      if (gameToWorker.get(g) === entry) gameToWorker.delete(g);
+      evicted.push(g);
+    }
     entry.games.clear();
     entry.worker.terminate().catch(() => {});
     if (!closed) {
       workers.push(spawn());
-      if (evicted.length) onEvicted(evicted);
+      if (evicted.length) {
+        try { onEvicted(evicted); } catch (e) { /* listener errors must not break the pool */ }
+      }
     }
   }
 
   for (let i = 0; i < size; i++) workers.push(spawn());
 
+  function pump(entry) {
+    if (entry.inflight !== null || entry.queue.length === 0 || workers.indexOf(entry) === -1) return;
+    const item = entry.queue.shift();
+    entry.inflight = item;
+    item.timer = setTimeout(() => {
+      entry.inflight = null;
+      entry.games.delete(item.gameId);
+      if (gameToWorker.get(item.gameId) === entry) gameToWorker.delete(item.gameId);
+      // reject the culprit first, then evict bystanders
+      item.reject(Object.assign(new Error('timeout'), { name: 'TimeoutError' }));
+      kill(entry, Object.assign(new Error('worker evicted'), { name: 'EvictedError' }));
+    }, item.deadlineMs);
+    entry.worker.postMessage({ id: item.id, op: item.op, gameId: item.gameId, args: item.args });
+  }
+
   function call(entry, gameId, op, args, deadlineMs) {
     return new Promise((resolve, reject) => {
-      const id = nextId++;
-      const timer = setTimeout(() => {
-        entry.pending.delete(id);
-        entry.games.delete(gameId); // the culprit is dead, not merely evicted
-        gameToWorker.delete(gameId);
-        kill(entry, Object.assign(new Error('timeout'), { name: 'TimeoutError' }));
-        reject(Object.assign(new Error('timeout'), { name: 'TimeoutError' }));
-      }, deadlineMs);
-      entry.pending.set(id, { resolve, reject, timer });
-      entry.worker.postMessage({ id, op, gameId, args });
+      entry.queue.push({ id: nextId++, gameId, op, args, deadlineMs, resolve, reject, timer: null });
+      pump(entry);
     });
   }
 
@@ -68,13 +91,12 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = (
       if (closed) throw new Error('pool closed');
       let entry = gameToWorker.get(gameId);
       if (!entry) { entry = workers[rr++ % workers.length]; }
+      gameToWorker.set(gameId, entry);
+      entry.games.add(gameId);
       try {
-        const meta = await call(entry, gameId, 'load', { source, seed, levelIndex }, compileMs);
-        entry.games.add(gameId);
-        gameToWorker.set(gameId, entry);
-        return meta;
+        return await call(entry, gameId, 'load', { source, seed, levelIndex }, compileMs);
       } catch (e) {
-        if (e.name !== 'TimeoutError') { entry.games.delete(gameId); gameToWorker.delete(gameId); }
+        if (gameToWorker.get(gameId) === entry) { entry.games.delete(gameId); gameToWorker.delete(gameId); }
         throw e;
       }
     },
@@ -93,7 +115,9 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = (
     },
     async close() {
       closed = true;
-      await Promise.all(workers.splice(0).map((e) => e.worker.terminate()));
+      const dying = workers.splice(0);
+      for (const e of dying) rejectAll(e, Object.assign(new Error('pool closed'), { name: 'PoolClosedError' }));
+      await Promise.all(dying.map((e) => e.worker.terminate()));
     },
     _call(gameId, op, args, deadlineMs) { return call(entryFor(gameId), gameId, op, args, deadlineMs); },
   };
