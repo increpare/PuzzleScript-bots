@@ -118,6 +118,7 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = (
     },
     input(gameId, action) { return call(entryFor(gameId), gameId, 'input', { action }, inputMs); },
     snapshot(gameId) { return call(entryFor(gameId), gameId, 'snapshot', {}, inputMs); },
+    tiles(gameId) { return call(entryFor(gameId), gameId, 'tiles', {}, inputMs); },
     onEvicted(fn) { evictionListeners.push(fn); },
     has(gameId) { return gameToWorker.has(gameId); },
     async drop(gameId) {

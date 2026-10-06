@@ -157,3 +157,12 @@ test('every frame is exactly 400x300', () => {
     assert.equal(back.height, 300);
   }
 });
+
+test('getGlyphs exposes the engine font as 12 rows of 5 booleans', () => {
+  const { getGlyphs, GLYPH_W, GLYPH_H, CHAR_W, CHAR_H } = require('../renderer');
+  const g = getGlyphs();
+  assert.equal(g.A.length, 12);
+  assert.equal(g.A[0].length, 5);
+  assert.deepEqual(g.A[3], [false, true, true, true, false]);
+  assert.deepEqual([GLYPH_W, GLYPH_H, CHAR_W, CHAR_H], [5, 12, 6, 13]);
+});

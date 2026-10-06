@@ -217,6 +217,37 @@ function createHost() {
     return Object.assign(base, { kind: 'level', width: level.width, height: level.height, cells, sprites, viewport: viewport() });
   }
 
+  // The Twitch stream frames the game with its own tiles. A sprite with no visible pixel is no use.
+  function spriteOf(o) {
+    if (!o || !Array.isArray(o.spritematrix) || !Array.isArray(o.colors)) return null;
+    const visible = o.spritematrix.some((row) => Array.from(row).some((v) => v >= 0 && o.colors[v] !== undefined && hexColor(o.colors[v]) !== 'transparent'));
+    return visible ? { colors: o.colors.map(hexColor), dat: o.spritematrix.map((row) => Array.from(row)) } : null;
+  }
+
+  // A name is looked up among the objects, then through the legend (first member of a
+  // synonym, property or aggregate). The wall also accepts any object named like one.
+  function frameTiles() {
+    const state = ps.state;
+    const byName = new Map(Object.keys(state.objects).map((k) => [k.toLowerCase(), state.objects[k]]));
+    const resolve = (name, depth) => {
+      if (depth > 8) return null;
+      if (byName.has(name)) return byName.get(name);
+      for (const key of ['legend_synonyms', 'legend_properties', 'legend_aggregates']) {
+        for (const e of state[key] || []) {
+          if (String(e[0]).toLowerCase() === name) return resolve(String(e[1]).toLowerCase(), depth + 1);
+        }
+      }
+      return null;
+    };
+    let wall = spriteOf(resolve('wall', 0));
+    if (wall === null) {
+      for (const [name, o] of byName) {
+        if (name.includes('wall') && spriteOf(o) !== null) { wall = spriteOf(o); break; }
+      }
+    }
+    return { wall, background: spriteOf(resolve('background', 0)), player: spriteOf(resolve('player', 0)) };
+  }
+
   const DIRS = { up: 0, left: 1, down: 2, right: 3, action: 4 };
 
   function kindNow() {
@@ -266,6 +297,7 @@ function createHost() {
     _rawInput: rawInput,
     _ps: ps,
     snapshot,
+    frameTiles,
     levelString: () => ctx.convertLevelToString(),
     dispose() { /* nothing to free; the context is garbage collected */ },
     _ctx: ctx, // test aid only

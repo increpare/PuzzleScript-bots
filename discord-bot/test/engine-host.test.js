@@ -179,3 +179,46 @@ test('flickscreen viewport is the page containing the player', () => {
   assert.equal(s.viewport.y % 4, 0);
   host.dispose();
 });
+
+const tinyGame = (objects, legend, layers) => `title t\n\n========\nOBJECTS\n========\n\n${objects}\n\n=======\nLEGEND\n=======\n\n${legend}\n\n=======\nSOUNDS\n=======\n\n================\nCOLLISIONLAYERS\n================\n\n${layers}\n\n======\nRULES\n======\n\n==============\nWINCONDITIONS\n==============\n\n=======\nLEVELS\n=======\n\nP.\n`;
+
+test('frameTiles returns the wall, background and player sprites', () => {
+  const host = createHost();
+  host.load(SOKOBAN, 'seed', 0);
+  const t = host.frameTiles();
+  assert.deepEqual(t.wall.colors, ['#a46422', '#493c2b']);
+  assert.deepEqual(t.wall.dat, [[0, 0, 0, 1, 0], [1, 1, 1, 1, 1], [0, 1, 0, 0, 0], [1, 1, 1, 1, 1], [0, 0, 0, 1, 0]]);
+  assert.deepEqual(t.background.colors, ['#a3ce27', '#44891a']);
+  assert.deepEqual(t.player.dat[0], [-1, 0, 0, 0, -1]);
+  host.dispose();
+});
+
+test('frameTiles has no wall when the game defines none', () => {
+  const host = createHost();
+  host.load(tinyGame('Background\nblack\n\nPlayer\nred', '. = Background\nP = Player', 'Background\nPlayer'), 'seed', 0);
+  const t = host.frameTiles();
+  assert.equal(t.wall, null);
+  assert.deepEqual(t.player.colors, ['#be2633']);
+  host.dispose();
+});
+
+test('frameTiles resolves wall through the legend to its first member', () => {
+  const host = createHost();
+  host.load(tinyGame('Background\nblack\n\nPlayer\nred\n\nBrickA\nblue\n\nBrickB\ngreen', '. = Background\nP = Player\nWall = BrickA or BrickB', 'Background\nPlayer, BrickA, BrickB'), 'seed', 0);
+  assert.deepEqual(host.frameTiles().wall.colors, ['#1d57f7']);
+  host.dispose();
+});
+
+test('frameTiles falls back to an object whose name contains wall', () => {
+  const host = createHost();
+  host.load(tinyGame('Background\nblack\n\nPlayer\nred\n\nStoneWall\ngrey darkgrey\n01010\n10101\n01010\n10101\n01010', '. = Background\nP = Player', 'Background\nPlayer, StoneWall'), 'seed', 0);
+  assert.deepEqual(host.frameTiles().wall.colors, ['#9d9d9d', '#697175']);
+  host.dispose();
+});
+
+test('frameTiles treats a fully transparent wall as no wall', () => {
+  const host = createHost();
+  host.load(tinyGame('Background\nblack\n\nPlayer\nred\n\nWall\ntransparent', '. = Background\nP = Player', 'Background\nPlayer, Wall'), 'seed', 0);
+  assert.equal(host.frameTiles().wall, null);
+  host.dispose();
+});

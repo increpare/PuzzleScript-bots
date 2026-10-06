@@ -29,6 +29,11 @@ function handle(msg) {
       if (!host) throw Object.assign(new Error('no such game'), { name: 'NoGameError' });
       return host.snapshot();
     }
+    case 'tiles': {
+      const host = hosts.get(gameId);
+      if (!host) throw Object.assign(new Error('no such game'), { name: 'NoGameError' });
+      return host.frameTiles();
+    }
     case 'drop': {
       const host = hosts.get(gameId);
       if (host) host.dispose();

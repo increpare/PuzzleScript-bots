@@ -195,4 +195,4 @@ function renderSnapshot(s) {
   return { png: encodePNG(img.width, img.height, img.rgba), width: img.width, height: img.height };
 }
 
-module.exports = { renderSnapshot, renderLevelRGBA, renderTextRGBA, layoutText, levelLayout, parseHex, makeImage, fillRect, FRAME_W, FRAME_H };
+module.exports = { renderSnapshot, renderLevelRGBA, renderTextRGBA, layoutText, levelLayout, parseHex, makeImage, fillRect, getGlyphs, FRAME_W, FRAME_H, GLYPH_W, GLYPH_H, CHAR_W, CHAR_H };

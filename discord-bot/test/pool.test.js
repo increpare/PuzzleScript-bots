@@ -72,3 +72,14 @@ test('close rejects in-flight calls promptly', async () => {
   await rejected;
   assert.ok(Date.now() - t0 < 1000, 'close did not wait for the spin');
 });
+
+test('tiles returns the frame sprites through a worker', async () => {
+  const pool = createPool({ size: 1 });
+  try {
+    await pool.load('g1', SOKOBAN, 'seed', 0);
+    const t = await pool.tiles('g1');
+    assert.deepEqual(t.wall.colors, ['#a46422', '#493c2b']);
+    assert.equal(t.player.dat.length, 5);
+    assert.throws(() => pool.tiles('nope'), (e) => e.name === 'NoGameError');
+  } finally { await pool.close(); }
+});
