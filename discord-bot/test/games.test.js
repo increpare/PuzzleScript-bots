@@ -115,3 +115,41 @@ test('loadAll tolerates corrupt files', async () => {
   const reg = createRegistry({ dataDir: dir, pool, getSource });
   try { assert.equal(reg.loadAll(), 0); } finally { await reg.close(); await pool.close(); }
 });
+
+test('pressing a finished record restored from disk returns a finished snapshot without touching the pool', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  let reg = createRegistry({ dataDir: dir, pool, getSource });
+  await reg.start({ gameId: 'f', channelId: 'c', gistId: 'sok' });
+  // fake completion on disk: mark the record finished the way press would
+  const file = path.join(dir, 'games', 'f.json');
+  const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+  rec.status = 'finished';
+  fs.writeFileSync(file, JSON.stringify(rec));
+  await reg.close();
+  await pool.drop('f');
+  reg = createRegistry({ dataDir: dir, pool, getSource });
+  try {
+    reg.loadAll();
+    const r = await reg.press('f', 'right');
+    assert.equal(r.applied, false);
+    assert.equal(r.snapshot.kind, 'finished');
+    assert.equal(pool.has('f'), false);
+  } finally { await reg.close(); await pool.close(); }
+});
+
+test('a game with a press in flight is not evicted by another game filling the live set', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const reg = createRegistry({ dataDir: dir, pool, getSource, maxLive: 1 });
+  try {
+    await reg.start({ gameId: 'x', channelId: 'c', gistId: 'sok' });
+    const pressing = reg.press('x', 'right');          // x is busy while this runs
+    await reg.start({ gameId: 'y', channelId: 'c', gistId: 'sok' }); // would evict x under plain LRU
+    const r = await pressing;
+    assert.equal(r.applied, true);
+    assert.deepEqual(r.record.inputs, ['right']);
+    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'games', 'x.json'), 'utf8'));
+    assert.deepEqual(onDisk.inputs, ['right']);
+  } finally { await reg.close(); await pool.close(); }
+});

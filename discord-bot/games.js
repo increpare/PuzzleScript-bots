@@ -8,9 +8,23 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
   const records = new Map();
   const live = [];            // gameIds, most recent last
   const queues = new Map();   // gameId -> Promise chain (never rejects)
+  const busy = new Map();     // gameId -> in-flight operation count (never evicted/pruned while > 0)
+  let closed = false;
+  const closedError = () => Object.assign(new Error('registry closed'), { name: 'RegistryClosedError' });
+  const markBusy = (id) => busy.set(id, (busy.get(id) || 0) + 1);
+  const unmarkBusy = (id) => { const n = (busy.get(id) || 1) - 1; if (n > 0) busy.set(id, n); else busy.delete(id); };
+
+  function syntheticSnapshot(rec) {
+    const levelCount = rec.meta ? rec.meta.levelCount : 0;
+    if (rec.status === 'finished') {
+      return { kind: 'finished', levelIndex: rec.meta ? rec.meta.levelCount - 1 : 0, levelCount, background: '#000000', textColor: '#ffffff', message: null };
+    }
+    return { kind: 'message', message: 'game stopped: ' + (rec.deadReason || 'error'), levelIndex: 0, levelCount, background: '#000000', textColor: '#ffffff' };
+  }
 
   const fileFor = (id) => path.join(gamesDir, id + '.json');
   function persist(rec) {
+    if (records.get(rec.gameId) !== rec) return; // pruned while in flight: do not resurrect
     rec.updatedAt = now();
     const tmp = fileFor(rec.gameId) + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(rec));
@@ -28,7 +42,9 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
   }
   async function enforceLiveLimit() {
     while (live.length > maxLive) {
-      const victim = live.shift();
+      const i = live.findIndex((id) => !busy.has(id));
+      if (i === -1) return; // everything is mid-operation; try again later
+      const [victim] = live.splice(i, 1);
       await pool.drop(victim);
     }
   }
@@ -63,10 +79,14 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
     rec.deadReason = String((err && err.message) || err);
     forgetLive(rec.gameId);
     persist(rec);
+    pool.drop(rec.gameId).catch(() => {});
   }
 
   return {
     async start({ gameId, channelId, gistId, startLevel = 0 }) {
+      if (closed) throw closedError();
+      markBusy(gameId);
+      try {
       const source = await getSource(gistId);
       const rec = { gameId, channelId, gistId, seed: gameId, startLevel, inputs: [], status: 'playing', meta: null, createdAt: now(), updatedAt: now() };
       rec.meta = await pool.load(gameId, source, rec.seed, startLevel);
@@ -77,15 +97,18 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
       if (snapshot.kind === 'finished') rec.status = 'finished';
       persist(rec);
       return { record: rec, snapshot };
+      } finally { unmarkBusy(gameId); }
     },
 
     press(gameId, action) {
+      if (closed) return Promise.reject(closedError());
+      markBusy(gameId);
       return enqueue(gameId, async () => {
+       try {
         const rec = records.get(gameId);
         if (!rec) throw Object.assign(new Error('unknown game'), { name: 'NoGameError' });
         if (rec.status !== 'playing') {
-          const snapshot = await pool.snapshot(gameId).catch(() => ({ kind: rec.status === 'finished' ? 'finished' : 'dead' }));
-          return { record: rec, snapshot, applied: false };
+          return { record: rec, snapshot: syntheticSnapshot(rec), applied: false };
         }
         try {
           await ensureLive(rec);
@@ -100,6 +123,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
           if (e.name === 'TimeoutError' || e.name === 'EngineError' || e.name === 'CompileError') markDead(rec, e);
           throw e;
         }
+       } finally { unmarkBusy(gameId); }
       });
     },
 
@@ -122,7 +146,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
     prune(maxAgeMs) {
       let n = 0;
       for (const rec of [...records.values()]) {
-        if (now() - rec.updatedAt > maxAgeMs) {
+        if (!busy.has(rec.gameId) && now() - rec.updatedAt > maxAgeMs) {
           records.delete(rec.gameId);
           forgetLive(rec.gameId);
           try { fs.unlinkSync(fileFor(rec.gameId)); } catch (e) { /* already gone */ }
@@ -134,6 +158,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
     },
 
     async close() {
+      closed = true;
       while (queues.size) await Promise.all([...queues.values()]);
     },
   };
