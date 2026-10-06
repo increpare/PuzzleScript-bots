@@ -1,5 +1,8 @@
 // discord-bot/renderer.js
 'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 const { encodePNG } = require('./png');
 
 const MAX_SIDE = 800;
@@ -65,11 +68,67 @@ function renderLevelRGBA(s) {
   return img;
 }
 
+const TERMINAL_W = 34, TERMINAL_H = 13, GLYPH_W = 5, GLYPH_H = 12, CHAR_W = 6, CHAR_H = 13;
+
+let glyphs = null;
+function getGlyphs() {
+  if (glyphs === null) {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'font.js'), 'utf8');
+    const sandbox = {};
+    vm.runInNewContext(src + '\n;this.__font = font;', sandbox);
+    glyphs = {};
+    for (const [ch, str] of Object.entries(sandbox.__font)) {
+      const rows = str.split('\n').map((r) => r.trim()).filter((r, i) => !(i === 0 && r === ''));
+      glyphs[ch] = rows.slice(0, GLYPH_H).map((r) => r.split('').map((c) => c === '1'));
+    }
+  }
+  return glyphs;
+}
+
+function wordwrap(str, width) {
+  if (!str) return [];
+  const regex = '.{1,' + width + '}(\\s|$)|.{' + width + '}|.+$';
+  return (str.match(new RegExp(regex, 'g')) || []).map((l) => l.replace(/\s+$/, ''));
+}
+
+function layoutText(message) {
+  const lines = wordwrap(String(message).trim(), TERMINAL_W).slice(0, TERMINAL_H - 1);
+  let offset = 5 - ((lines.length / 2) | 0);
+  if (offset < 0) offset = 0;
+  const grid = [];
+  for (let r = 0; r < TERMINAL_H; r++) grid.push(' '.repeat(TERMINAL_W));
+  lines.forEach((line, i) => {
+    const row = offset + i;
+    if (row >= TERMINAL_H) return;
+    const lmargin = ((TERMINAL_W - line.length) / 2) | 0;
+    grid[row] = (' '.repeat(lmargin) + line).padEnd(TERMINAL_W).slice(0, TERMINAL_W);
+  });
+  return grid;
+}
+
+function renderTextRGBA(s) {
+  const text = s.kind === 'finished' ? 'finished' : s.message || '';
+  const grid = layoutText(text);
+  const scale = scaleFor(TERMINAL_W, TERMINAL_H, CHAR_W);
+  const img = makeImage(TERMINAL_W * CHAR_W * scale, TERMINAL_H * CHAR_H * scale, s.background || '#000000');
+  const ink = parseHex(s.textColor || '#ffffff');
+  const font = getGlyphs();
+  for (let r = 0; r < TERMINAL_H; r++) {
+    for (let c = 0; c < TERMINAL_W; c++) {
+      const ch = grid[r][c];
+      if (ch === ' ' || !font[ch]) continue; // unknown glyphs (CJK) are skipped
+      const g = font[ch];
+      for (let gy = 0; gy < GLYPH_H; gy++) for (let gx = 0; gx < GLYPH_W; gx++) {
+        if (g[gy] && g[gy][gx]) fillRect(img, (c * CHAR_W + gx) * scale, (r * CHAR_H + gy) * scale, scale, scale, ink);
+      }
+    }
+  }
+  return img;
+}
+
 function renderSnapshot(s) {
-  let img;
-  if (s.kind === 'level') img = renderLevelRGBA(s);
-  else throw new Error('unsupported snapshot kind ' + s.kind); // text frames arrive in the next task
+  const img = s.kind === 'level' ? renderLevelRGBA(s) : renderTextRGBA(s);
   return { png: encodePNG(img.width, img.height, img.rgba), width: img.width, height: img.height };
 }
 
-module.exports = { renderSnapshot, renderLevelRGBA, parseHex, makeImage, fillRect, scaleFor };
+module.exports = { renderSnapshot, renderLevelRGBA, renderTextRGBA, layoutText, parseHex, makeImage, fillRect, scaleFor };

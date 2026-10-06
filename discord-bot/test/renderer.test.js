@@ -56,3 +56,42 @@ test('zoomscreen viewport crops to the window around the player', () => {
   assert.equal(img.width / img.height, 1);
   host.dispose();
 });
+
+const { renderTextRGBA } = require('../renderer');
+
+test('message frames render text in the text colour on the background', () => {
+  const s = { kind: 'message', message: 'hello', background: '#000000', textColor: '#ffffff', levelIndex: 0, levelCount: 1 };
+  const img = renderTextRGBA(s);
+  assert.equal(img.width, 34 * 6 * 3);
+  assert.equal(img.height, 13 * 13 * 3); // 13 rows * 13 px per row * scale 3
+  let white = 0, black = 0;
+  for (let i = 0; i < img.rgba.length; i += 4) {
+    if (img.rgba[i] === 255 && img.rgba[i + 1] === 255 && img.rgba[i + 2] === 255) white++;
+    else if (img.rgba[i] === 0 && img.rgba[i + 1] === 0 && img.rgba[i + 2] === 0) black++;
+  }
+  assert.ok(white > 50, 'expected some ink');
+  assert.ok(black > white, 'mostly background');
+});
+
+test('the glyph for "h" lands on row 5 (centre) for a one-line message', () => {
+  const s = { kind: 'message', message: 'h', background: '#000000', textColor: '#ffffff' };
+  const img = renderTextRGBA(s);
+  const scale = 3;
+  const col = Math.floor((34 - 1) / 2);
+  const row = 5;
+  // check that at least one ink pixel exists inside that character cell and none in row 0
+  let inkInCell = 0, inkRow0 = 0;
+  for (let y = 0; y < 13 * scale; y++) for (let x = 0; x < 6 * scale; x++) {
+    const i = (((row * 13 * scale) + y) * img.width + (col * 6 * scale + x)) * 4;
+    if (img.rgba[i] === 255) inkInCell++;
+    const j = ((y) * img.width + (col * 6 * scale + x)) * 4;
+    if (img.rgba[j] === 255) inkRow0++;
+  }
+  assert.ok(inkInCell > 0);
+  assert.equal(inkRow0, 0);
+});
+
+test('finished frames render', () => {
+  const out = renderSnapshot({ kind: 'finished', background: '#101010', textColor: '#ffffff' });
+  assert.ok(out.png.length > 100);
+});
