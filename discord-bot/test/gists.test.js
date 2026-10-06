@@ -81,3 +81,16 @@ test('errors are user-facing', async () => {
   await assert.rejects(store.getSource('bbbb'), (e) => e instanceof GistError && /script\.txt/.test(e.message));
   await assert.rejects(store.getSource('cccc'), (e) => e instanceof GistError && /too large/.test(e.message));
 });
+
+test('the download cache is capped, oldest entries evicted first', async () => {
+  const dir = tmpDir();
+  const big = 'x'.repeat(1000);
+  const body = () => ({ status: 200, headers: {}, body: { files: { 'script.txt': { content: big } } } });
+  const { impl } = fakeFetch([body(), body(), body(), body()]);
+  const store = createGistStore({ dataDir: dir, token: 'tok', fetchImpl: impl, maxCacheBytes: 2500 });
+  for (const id of ['aaa1', 'aaa2', 'aaa3', 'aaa4']) { await store.getSource(id); await new Promise((r) => setTimeout(r, 15)); }
+  const files = fs.readdirSync(path.join(dir, 'gists')).filter((f) => f.endsWith('.json'));
+  assert.ok(files.length <= 2, 'kept ' + files.length);
+  assert.ok(files.includes('aaa4.json'), 'newest kept');
+  assert.ok(!files.includes('aaa1.json'), 'oldest evicted');
+});

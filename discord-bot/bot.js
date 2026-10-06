@@ -42,7 +42,8 @@ async function main() {
   const cfg = loadConfig();
   const pool = createPool({ size: 2 });
   const gists = createGistStore({ dataDir: cfg.dataDir, token: cfg.githubToken });
-  const registry = createRegistry({ dataDir: cfg.dataDir, pool, getSource: gists.getSource });
+  // 100 MB of game data in total: 90 MB of pinned sources plus the 10 MB download cache (gists.js default).
+  const registry = createRegistry({ dataDir: cfg.dataDir, pool, getSource: gists.getSource, maxSourceBytes: 90_000_000 });
   console.log('loaded', registry.loadAll(), 'games', registry.storage());
 
   const scores = createScores({ dataDir: cfg.dataDir });

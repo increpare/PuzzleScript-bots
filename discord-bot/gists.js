@@ -16,7 +16,7 @@ function parseGistId(input) {
   return null;
 }
 
-function createGistStore({ dataDir, token, fetchImpl = globalThis.fetch, now = Date.now, maxBytes = 1_000_000, freshMs = 10 * 60 * 1000 }) {
+function createGistStore({ dataDir, token, fetchImpl = globalThis.fetch, now = Date.now, maxBytes = 1_000_000, freshMs = 10 * 60 * 1000, maxCacheBytes = 10_000_000 }) {
   const cacheDir = path.join(dataDir, 'gists');
   fs.mkdirSync(cacheDir, { recursive: true });
   const fileFor = (id) => path.join(cacheDir, id + '.json');
@@ -28,6 +28,27 @@ function createGistStore({ dataDir, token, fetchImpl = globalThis.fetch, now = D
     const tmp = fileFor(id) + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(entry));
     fs.renameSync(tmp, fileFor(id));
+    enforceCacheCap(id);
+  }
+
+  // The cache is only a shortcut (anything in it can be fetched again), so over the cap the oldest entries go.
+  function enforceCacheCap(keepId) {
+    const files = [];
+    let total = 0;
+    for (const f of fs.readdirSync(cacheDir)) {
+      if (!f.endsWith('.json')) continue;
+      try {
+        const st = fs.statSync(path.join(cacheDir, f));
+        files.push({ f, size: st.size, mtime: st.mtimeMs });
+        total += st.size;
+      } catch (e) { /* raced with a delete */ }
+    }
+    files.sort((a, b) => a.mtime - b.mtime);
+    for (const x of files) {
+      if (total <= maxCacheBytes) break;
+      if (x.f === keepId + '.json') continue;
+      try { fs.unlinkSync(path.join(cacheDir, x.f)); total -= x.size; } catch (e) { /* already gone */ }
+    }
   }
 
   async function fetchGist(id, etag) {
