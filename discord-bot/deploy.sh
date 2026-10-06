@@ -8,6 +8,7 @@ ROOT="$(cd "$HERE/.." && pwd)"
 
 ssh "$HOST" "mkdir -p ~/$DEST/src ~/$DEST/discord-bot ~/.config/systemd/user"
 rsync -az --delete "$ROOT/src/js/" "$HOST:~/$DEST/src/js/"
+rsync -az "$ROOT/src/games_dat.js" "$HOST:~/$DEST/src/games_dat.js"
 rsync -az --delete --exclude node_modules --exclude data --exclude .env "$HERE/" "$HOST:~/$DEST/discord-bot/"
 ssh "$HOST" "cd ~/$DEST/discord-bot && npm ci --omit=dev --no-audit --no-fund \
   && cp puzzlescript-bot.service ~/.config/systemd/user/ \

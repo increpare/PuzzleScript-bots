@@ -5,6 +5,7 @@ const { createPool } = require('./pool');
 const { createGistStore, parseGistId, GistError } = require('./gists');
 const { createRegistry } = require('./games');
 const { renderSnapshot } = require('./renderer');
+const { loadGallery, suggest } = require('./gallery');
 const { buildComponents, buildEmbed, parseCustomId } = require('./presentation');
 
 const PRUNE_MS = 14 * 24 * 3600 * 1000;
@@ -45,19 +46,29 @@ async function main() {
   console.log('loaded', registry.loadAll(), 'games;', 'pruned', registry.prune(PRUNE_MS));
   setInterval(() => console.log('pruned', registry.prune(PRUNE_MS)), 24 * 3600 * 1000).unref();
 
+  const gallery = loadGallery();
   const client = new Client({ intents: [GatewayIntentBits.Guilds], allowedMentions: { parse: [] } });
 
   // Per-game chain so button edits land in press order.
   const editChains = new Map();
   function enqueueEdit(gameId, fn) {
     const prev = editChains.get(gameId) || Promise.resolve();
-    const tail = prev.then(fn).catch((e) => console.error('edit failed', e));
+    const tail = prev.then(fn).catch((e) => console.error('edit failed', 'code', e && e.code, 'status', e && e.status, e));
     editChains.set(gameId, tail);
     tail.then(() => { if (editChains.get(gameId) === tail) editChains.delete(gameId); });
     return tail;
   }
 
   client.on('interactionCreate', async (interaction) => {
+    if (interaction.isAutocomplete() && interaction.commandName === 'play') {
+      try {
+        const focused = interaction.options.getFocused();
+        await interaction.respond(suggest(gallery, focused));
+      } catch (err) {
+        console.error('autocomplete failed', err);
+      }
+      return;
+    }
     try {
       if (interaction.isChatInputCommand() && interaction.commandName === 'play') {
         const gistId = parseGistId(interaction.options.getString('game', true));
@@ -66,10 +77,13 @@ async function main() {
           await interaction.reply({ content: 'that does not look like a gist id or a play link', flags: MessageFlags.Ephemeral });
           return;
         }
+        const t0 = Date.now();
         await interaction.deferReply();
+        console.log('play deferred', Date.now() - t0, 'ms');
         const reply = await interaction.fetchReply();
         try {
           const { record, snapshot } = await registry.start({ gameId: reply.id, channelId: interaction.channelId, gistId, startLevel: level });
+          console.log('play started', Date.now() - t0, 'ms');
           if (record.meta.flags.realtime) {
             registry.markDead(record.gameId, 'realtime game');
             await interaction.editReply({ content: 'realtime games cannot be played here (this one sets realtime_interval)' });
@@ -81,6 +95,7 @@ async function main() {
             return;
           }
           await interaction.editReply(frame(record, snapshot));
+          console.log('play edited', Date.now() - t0, 'ms');
         } catch (err) {
           await interaction.editReply({ content: userMessage(err) });
         }
@@ -90,14 +105,19 @@ async function main() {
         const action = parseCustomId(interaction.customId);
         if (!action) return;
         const gameId = interaction.message.id;
+        const t0 = Date.now();
+        console.log('press', action, gameId, 'gateway-lag', t0 - interaction.createdTimestamp, 'ms');
         if (!registry.get(gameId)) {
           await interaction.reply({ content: 'this game is no longer available', flags: MessageFlags.Ephemeral });
           return;
         }
         await interaction.deferUpdate();
+        console.log('ack', Date.now() - t0, 'ms');
         try {
-          const { record, snapshot } = await registry.press(gameId, action);
+          const { record, snapshot, applied } = await registry.press(gameId, action);
+          console.log('applied', applied, Date.now() - t0, 'ms');
           await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot)));
+          console.log('edited', Date.now() - t0, 'ms');
         } catch (err) {
           // Keep the existing embed and image; keep buttons while the game is still playable.
           const rec = registry.get(gameId);

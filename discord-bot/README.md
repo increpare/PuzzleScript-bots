@@ -20,6 +20,8 @@ The bot loads the engine from `../src/js`, so it must sit beside a copy of
 3. `node register-commands.js` once (on the Pi or locally with the same `.env`).
 4. If the service should survive logout/reboot: `sudo loginctl enable-linger box`.
 
+Typing `/play` suggests games from the puzzlescript.net gallery; any gist id or play link also works.
+
 ## Deploy
 
     ./deploy.sh

@@ -16,7 +16,7 @@ function buildComponents(snapshot, meta) {
   if (!flags.noaction) row1.push(button('action', ButtonStyle.Primary));
   const row2 = [];
   if (!flags.noundo) row2.push(button('undo'));
-  if (!flags.norestart) row2.push(button('restart', ButtonStyle.Danger));
+  if (!flags.norestart) row2.push(button('restart'));
   const rows = [new ActionRowBuilder().addComponents(...row1)];
   if (row2.length) rows.push(new ActionRowBuilder().addComponents(...row2));
   return rows;

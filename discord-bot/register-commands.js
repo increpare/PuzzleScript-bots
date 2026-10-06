@@ -7,7 +7,7 @@ async function main() {
   const play = new SlashCommandBuilder()
     .setName('play')
     .setDescription('Play a PuzzleScript game in this channel')
-    .addStringOption((o) => o.setName('game').setDescription('Gist id, play.html link, or gist link').setRequired(true))
+    .addStringOption((o) => o.setName('game').setDescription('Gist id, play.html link, or gist link').setRequired(true).setAutocomplete(true))
     .addIntegerOption((o) => o.setName('level').setDescription('Level to start at (1 = first)').setMinValue(1));
   const rest = new REST({ version: '10' }).setToken(cfg.discordToken);
   await rest.put(Routes.applicationGuildCommands(cfg.appId, cfg.guildId), { body: [play.toJSON()] });
