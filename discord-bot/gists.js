@@ -2,6 +2,7 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const { createSourceStore } = require('./sources');
 
 class GistError extends Error {}
 
@@ -16,7 +17,7 @@ function parseGistId(input) {
   return null;
 }
 
-function createGistStore({ dataDir, token, fetchImpl = globalThis.fetch, now = Date.now, maxBytes = 1_000_000, freshMs = 10 * 60 * 1000, maxCacheBytes = 10_000_000 }) {
+function createGistStore({ dataDir, token, fetchImpl = globalThis.fetch, now = Date.now, maxBytes = 1_000_000, freshMs = 10 * 60 * 1000, maxCacheBytes = 1_000_000, sources = createSourceStore({ dataDir }) }) {
   const cacheDir = path.join(dataDir, 'gists');
   fs.mkdirSync(cacheDir, { recursive: true });
   const fileFor = (id) => path.join(cacheDir, id + '.json');
@@ -31,7 +32,8 @@ function createGistStore({ dataDir, token, fetchImpl = globalThis.fetch, now = D
     enforceCacheCap(id);
   }
 
-  // The cache is only a shortcut (anything in it can be fetched again), so over the cap the oldest entries go.
+  // The cache is a small index (gist id -> etag, last check, hash of the source in the source store).
+  // Anything in it can be fetched again, so over the cap the oldest entries go.
   function enforceCacheCap(keepId) {
     const files = [];
     let total = 0;
@@ -69,20 +71,21 @@ function createGistStore({ dataDir, token, fetchImpl = globalThis.fetch, now = D
     const file = body && body.files && body.files['script.txt'];
     if (!file || typeof file.content !== 'string') throw new GistError('gist has no script.txt');
     if (Buffer.byteLength(file.content, 'utf8') > maxBytes) throw new GistError('game source is too large');
-    return { etag: res.headers.get('etag') || null, fetchedAt: now(), content: file.content };
+    return { etag: res.headers.get('etag') || null, fetchedAt: now(), hash: sources.save(file.content), content: file.content };
   }
 
   async function getSource(id) {
     if (!/^[0-9a-f]{4,40}$/i.test(String(id))) throw new GistError('invalid gist id');
     const cached = readCache(id);
-    if (cached && now() - cached.fetchedAt < freshMs) return cached.content;
-    const fresh = await fetchGist(id, cached ? cached.etag : null);
+    // the index entry is only useful while the source it points at is still in the store
+    const cachedSource = cached && cached.hash ? sources.load(cached.hash) : null;
+    if (cachedSource !== null && now() - cached.fetchedAt < freshMs) return cachedSource;
+    const fresh = await fetchGist(id, cachedSource !== null ? cached.etag : null);
     if (fresh === null) {
-      const entry = Object.assign({}, cached, { fetchedAt: now() });
-      writeCache(id, entry);
-      return cached.content;
+      writeCache(id, { etag: cached.etag, fetchedAt: now(), hash: cached.hash });
+      return cachedSource;
     }
-    writeCache(id, fresh);
+    writeCache(id, { etag: fresh.etag, fetchedAt: fresh.fetchedAt, hash: fresh.hash });
     return fresh.content;
   }
 

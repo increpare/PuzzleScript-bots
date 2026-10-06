@@ -85,12 +85,33 @@ test('errors are user-facing', async () => {
 test('the download cache is capped, oldest entries evicted first', async () => {
   const dir = tmpDir();
   const big = 'x'.repeat(1000);
+  // index entries are small now (no source text), so use a tight cap
   const body = () => ({ status: 200, headers: {}, body: { files: { 'script.txt': { content: big } } } });
   const { impl } = fakeFetch([body(), body(), body(), body()]);
-  const store = createGistStore({ dataDir: dir, token: 'tok', fetchImpl: impl, maxCacheBytes: 2500 });
+  const store = createGistStore({ dataDir: dir, token: 'tok', fetchImpl: impl, maxCacheBytes: 250 });
   for (const id of ['aaa1', 'aaa2', 'aaa3', 'aaa4']) { await store.getSource(id); await new Promise((r) => setTimeout(r, 15)); }
   const files = fs.readdirSync(path.join(dir, 'gists')).filter((f) => f.endsWith('.json'));
   assert.ok(files.length <= 2, 'kept ' + files.length);
   assert.ok(files.includes('aaa4.json'), 'newest kept');
   assert.ok(!files.includes('aaa1.json'), 'oldest evicted');
+});
+
+test('source text is stored once in the shared store; the gist cache only indexes it', async () => {
+  const dir = tmpDir();
+  const { impl, calls } = fakeFetch([
+    { status: 200, headers: { etag: '"e1"' }, body: { files: { 'script.txt': { content: 'title shared' } } } },
+    { status: 200, headers: { etag: '"e2"' }, body: { files: { 'script.txt': { content: 'title shared' } } } },
+  ]);
+  let t = 1000;
+  const store = createGistStore({ dataDir: dir, token: 'tok', fetchImpl: impl, now: () => t });
+  await store.getSource('abc1');
+  const entry = JSON.parse(fs.readFileSync(path.join(dir, 'gists', 'abc1.json'), 'utf8'));
+  assert.equal(entry.content, undefined, 'no source text in the index');
+  assert.match(entry.hash, /^[0-9a-f]{64}$/);
+  assert.equal(fs.readFileSync(path.join(dir, 'sources', entry.hash + '.txt'), 'utf8'), 'title shared');
+  // if the stored source is lost, a fresh entry is no longer trusted: it refetches without an etag
+  fs.unlinkSync(path.join(dir, 'sources', entry.hash + '.txt'));
+  assert.equal(await store.getSource('abc1'), 'title shared');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].opts.headers['if-none-match'], undefined);
 });

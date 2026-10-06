@@ -7,6 +7,7 @@ const { createRegistry } = require('./games');
 const { renderSnapshot } = require('./renderer');
 const { loadGallery, suggest } = require('./gallery');
 const { createScores } = require('./scores');
+const { createSourceStore } = require('./sources');
 const { buildComponents, buildEmbed, parseCustomId } = require('./presentation');
 
 
@@ -41,9 +42,10 @@ function userMessage(err) {
 async function main() {
   const cfg = loadConfig();
   const pool = createPool({ size: 2 });
-  const gists = createGistStore({ dataDir: cfg.dataDir, token: cfg.githubToken });
-  // 100 MB of game data in total: 90 MB of pinned sources plus the 10 MB download cache (gists.js default).
-  const registry = createRegistry({ dataDir: cfg.dataDir, pool, getSource: gists.getSource, maxSourceBytes: 90_000_000 });
+  // All game source text lives in one store (99 MB cap); the gist index (1 MB) only points into it.
+  const sources = createSourceStore({ dataDir: cfg.dataDir });
+  const gists = createGistStore({ dataDir: cfg.dataDir, token: cfg.githubToken, sources });
+  const registry = createRegistry({ dataDir: cfg.dataDir, pool, getSource: gists.getSource, sources });
   console.log('loaded', registry.loadAll(), 'games', registry.storage());
 
   const scores = createScores({ dataDir: cfg.dataDir });

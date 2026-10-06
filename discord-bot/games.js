@@ -2,54 +2,16 @@
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
+const { createSourceStore } = require('./sources');
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
-function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now, maxRecordBytes = 1_000_000, maxSourceBytes = 100_000_000 }) {
+function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now, maxRecordBytes = 1_000_000, maxSourceBytes = 99_000_000, sources = createSourceStore({ dataDir, maxBytes: maxSourceBytes, now }) }) {
   const gamesDir = path.join(dataDir, 'games');
   fs.mkdirSync(gamesDir, { recursive: true });
-  // Game sources are stored once per distinct source (by hash), apart from the small per-game records,
-  // so a game keeps working after its gist is edited and each store has its own size cap.
-  const sourcesDir = path.join(dataDir, 'sources');
-  fs.mkdirSync(sourcesDir, { recursive: true });
-  const sourceFile = (hash) => path.join(sourcesDir, hash + '.txt');
   const recordSizes = new Map(); // gameId -> bytes on disk
   let recordBytes = 0;
 
-  function enforceSourceCap(keepHash) {
-    const files = [];
-    let total = 0;
-    for (const f of fs.readdirSync(sourcesDir)) {
-      if (!f.endsWith('.txt')) continue;
-      try {
-        const st = fs.statSync(path.join(sourcesDir, f));
-        files.push({ f, size: st.size, mtime: st.mtimeMs });
-        total += st.size;
-      } catch (e) { /* raced with a delete */ }
-    }
-    files.sort((a, b) => a.mtime - b.mtime); // least recently used first
-    for (const x of files) {
-      if (total <= maxSourceBytes) break;
-      if (x.f === keepHash + '.txt') continue;
-      try { fs.unlinkSync(path.join(sourcesDir, x.f)); total -= x.size; } catch (e) { /* already gone */ }
-    }
-  }
-  function saveSource(hash, source) {
-    if (!fs.existsSync(sourceFile(hash))) {
-      const tmp = sourceFile(hash) + '.tmp';
-      fs.writeFileSync(tmp, source);
-      fs.renameSync(tmp, sourceFile(hash));
-      enforceSourceCap(hash);
-    }
-  }
-  function loadSource(hash) {
-    try {
-      const source = fs.readFileSync(sourceFile(hash), 'utf8');
-      const t = new Date(now());
-      try { fs.utimesSync(sourceFile(hash), t, t); } catch (e) { /* recency is best effort */ }
-      return source;
-    } catch (e) { return null; }
-  }
   const records = new Map();
   const live = [];            // gameIds, most recent last
   const queues = new Map();   // gameId -> Promise chain (never rejects)
@@ -125,7 +87,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
     if (pool.has(rec.gameId)) { touchLive(rec.gameId); return; }
     // Prefer the stored copy of the source the game started with; only if it has been evicted
     // do we go back to the gist, and then it must still be the same source.
-    let source = rec.sourceHash ? loadSource(rec.sourceHash) : null;
+    let source = rec.sourceHash ? sources.load(rec.sourceHash) : null;
     if (source === null) {
       source = await getSource(rec.gistId);
       if (rec.sourceHash && rec.sourceHash !== sha256(source)) {
@@ -133,7 +95,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
         markDead(rec, err);
         throw err;
       }
-      if (rec.sourceHash) saveSource(rec.sourceHash, source);
+      if (rec.sourceHash) sources.save(source);
     }
     try {
       await pool.load(rec.gameId, source, rec.seed, rec.startLevel);
@@ -172,7 +134,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
       const source = await getSource(gistId);
       const rec = { gameId, channelId, gistId, seed: gameId, sourceHash: sha256(source), startLevel, inputs: [], status: 'playing', meta: null, createdAt: now(), updatedAt: now() };
       rec.meta = await pool.load(gameId, source, rec.seed, startLevel);
-      saveSource(rec.sourceHash, source);
+      sources.save(source);
       records.set(gameId, rec);
       touchLive(gameId);
       await enforceLiveLimit();
