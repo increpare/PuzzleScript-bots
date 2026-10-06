@@ -35,8 +35,8 @@ Typing `/play` suggests games from the puzzlescript.net gallery; any gist id or 
 
 - Logs: `journalctl --user -u puzzlescript-bot -f`
 - Games persist under `discord-bot/data/games/`, gist cache under `data/gists/`.
-  Idle games are pruned after 14 days.
-- Editing a gist ends games in progress on it (the bot replays inputs against the original source and refuses to continue if it changed).
+  Games never expire by age. Per-game records (seed and input history) are capped at 1 MB in total and game sources at 100 MB (`data/sources/`, one file per distinct source); over a cap, finished games go first, then the least recently played. A game keeps its original source, so editing a gist does not affect games already started unless that source has been evicted.
+- 
 - Every frame is 400×300 px (matches Discord's embed placeholder size so the panel never resizes).
 - Limits: 1 MB source, 10 s compile, 3 s per input, 30 live games.
 

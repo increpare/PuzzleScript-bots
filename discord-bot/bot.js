@@ -9,7 +9,6 @@ const { loadGallery, suggest } = require('./gallery');
 const { createScores } = require('./scores');
 const { buildComponents, buildEmbed, parseCustomId } = require('./presentation');
 
-const PRUNE_MS = 14 * 24 * 3600 * 1000;
 
 function frame(record, snapshot) {
   const { png } = renderSnapshot(snapshot);
@@ -44,8 +43,7 @@ async function main() {
   const pool = createPool({ size: 2 });
   const gists = createGistStore({ dataDir: cfg.dataDir, token: cfg.githubToken });
   const registry = createRegistry({ dataDir: cfg.dataDir, pool, getSource: gists.getSource });
-  console.log('loaded', registry.loadAll(), 'games;', 'pruned', registry.prune(PRUNE_MS));
-  setInterval(() => console.log('pruned', registry.prune(PRUNE_MS)), 24 * 3600 * 1000).unref();
+  console.log('loaded', registry.loadAll(), 'games', registry.storage());
 
   const scores = createScores({ dataDir: cfg.dataDir });
   const gallery = loadGallery();

@@ -90,19 +90,59 @@ test('concurrent presses on one game apply in order', async () => {
   } finally { await reg.close(); await pool.close(); }
 });
 
-test('prune deletes idle records', async () => {
+test('records over the size cap are evicted: finished first, then least recently played', async () => {
   const dir = tmp();
   const pool = createPool({ size: 1 });
   let t = 1_000_000;
-  const reg = createRegistry({ dataDir: dir, pool, getSource, now: () => t });
+  // each sokoban record is a few hundred bytes; a 1300-byte cap holds two or three of them
+  const reg = createRegistry({ dataDir: dir, pool, getSource, now: () => t, maxRecordBytes: 1300 });
   try {
-    await reg.start({ gameId: 'old', channelId: 'c', gistId: 'sok' });
-    t += 15 * 24 * 3600 * 1000;
-    await reg.start({ gameId: 'new', channelId: 'c', gistId: 'sok' });
-    assert.equal(reg.prune(14 * 24 * 3600 * 1000), 1);
-    assert.equal(reg.get('old'), undefined);
-    assert.equal(fs.existsSync(path.join(dir, 'games', 'old.json')), false);
-    assert.ok(reg.get('new'));
+    for (const id of ['g1', 'g2', 'g3']) { t += 1000; await reg.start({ gameId: id, channelId: 'c', gistId: 'sok' }); }
+    reg.markDead('g3', 'test');            // a stopped game is the first to go, even though it is newest
+    for (const id of ['g4', 'g5', 'g6']) { t += 1000; await reg.start({ gameId: id, channelId: 'c', gistId: 'sok' }); }
+    assert.equal(reg.get('g3'), undefined, 'stopped game evicted first');
+    assert.equal(reg.get('g1'), undefined, 'oldest playing game evicted next');
+    assert.ok(reg.get('g6'), 'newest game kept');
+    assert.ok(reg.storage().recordBytes <= 1300);
+    assert.equal(fs.existsSync(path.join(dir, 'games', 'g1.json')), false);
+  } finally { await reg.close(); await pool.close(); }
+});
+
+test('a game keeps its stored source after the gist changes, and is refused only if that copy is gone', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  let current = SOKOBAN;
+  const src = async () => current;
+  let reg = createRegistry({ dataDir: dir, pool, getSource: src });
+  await reg.start({ gameId: 'k', channelId: 'c', gistId: 'sok' });
+  await reg.press('k', 'right');
+  await reg.close();
+  await pool.drop('k');
+  current = SOKOBAN.replace('Simple Block Pushing Game', 'Edited');
+  reg = createRegistry({ dataDir: dir, pool, getSource: src });
+  try {
+    reg.loadAll();
+    const r = await reg.press('k', 'undo');
+    assert.equal(r.applied, true, 'replayed against the stored original source');
+    // now lose the stored source too: the edited gist no longer matches
+    await pool.drop('k');
+    for (const f of fs.readdirSync(path.join(dir, 'sources'))) fs.unlinkSync(path.join(dir, 'sources', f));
+    await assert.rejects(reg.press('k', 'right'), /source changed/);
+    assert.equal(reg.get('k').status, 'dead');
+  } finally { await reg.close(); await pool.close(); }
+});
+
+test('the source store is capped, least recently used first', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  let n = 0;
+  const src = async () => SOKOBAN.replace('Simple Block Pushing Game', 'Game ' + (n++));
+  const reg = createRegistry({ dataDir: dir, pool, getSource: src, maxSourceBytes: Buffer.byteLength(SOKOBAN) * 2 + 100 });
+  try {
+    for (const id of ['s1', 's2', 's3', 's4']) await reg.start({ gameId: id, channelId: 'c', gistId: 'sok' });
+    const files = fs.readdirSync(path.join(dir, 'sources')).filter((f) => f.endsWith('.txt'));
+    assert.ok(files.length <= 2, 'kept at most two sources, got ' + files.length);
+    assert.ok(files.includes(reg.get('s4').sourceHash + '.txt'), 'the newest source is kept');
   } finally { await reg.close(); await pool.close(); }
 });
 
