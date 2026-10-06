@@ -39,3 +39,7 @@ Typing `/play` suggests games from the puzzlescript.net gallery; any gist id or 
 - Editing a gist ends games in progress on it (the bot replays inputs against the original source and refuses to continue if it changed).
 - Every frame is 400×300 px (matches Discord's embed placeholder size so the panel never resizes).
 - Limits: 1 MB source, 10 s compile, 3 s per input, 30 live games.
+
+## Scores
+
+Whoever makes the winning move on a level gets credit for it, once per game and level. Ranks rise at 1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90 and 100 levels. Rank-ups are announced in the channel named by `SCORE_CHANNEL_ID` only (or in the game's channel if unset). `/rank` shows your own count privately. Scores live in `data/scores.json`.

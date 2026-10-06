@@ -6,6 +6,7 @@ const { createGistStore, parseGistId, GistError } = require('./gists');
 const { createRegistry } = require('./games');
 const { renderSnapshot } = require('./renderer');
 const { loadGallery, suggest } = require('./gallery');
+const { createScores } = require('./scores');
 const { buildComponents, buildEmbed, parseCustomId } = require('./presentation');
 
 const PRUNE_MS = 14 * 24 * 3600 * 1000;
@@ -46,6 +47,7 @@ async function main() {
   console.log('loaded', registry.loadAll(), 'games;', 'pruned', registry.prune(PRUNE_MS));
   setInterval(() => console.log('pruned', registry.prune(PRUNE_MS)), 24 * 3600 * 1000).unref();
 
+  const scores = createScores({ dataDir: cfg.dataDir });
   const gallery = loadGallery();
   const client = new Client({ intents: [GatewayIntentBits.Guilds], allowedMentions: { parse: [] } });
 
@@ -101,6 +103,13 @@ async function main() {
         }
         return;
       }
+      if (interaction.isChatInputCommand() && interaction.commandName === 'rank') {
+        const s = scores.get(interaction.user.id);
+        const levels = s.count === 1 ? '1 level' : s.count + ' levels';
+        const next = s.next === null ? 'That is the top rank.' : 'Next rank at ' + s.next + '.';
+        await interaction.reply({ content: 'You have solved ' + levels + ' (rank ' + s.rank + '). ' + next, flags: MessageFlags.Ephemeral });
+        return;
+      }
       if (interaction.isButton()) {
         const action = parseCustomId(interaction.customId);
         if (!action) return;
@@ -114,10 +123,20 @@ async function main() {
         await interaction.deferUpdate();
         console.log('ack', Date.now() - t0, 'ms');
         try {
-          const { record, snapshot, applied } = await registry.press(gameId, action);
+          const { record, snapshot, applied, solvedLevel } = await registry.press(gameId, action);
           console.log('applied', applied, Date.now() - t0, 'ms');
           await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot)));
           console.log('edited', Date.now() - t0, 'ms');
+          if (solvedLevel !== null && solvedLevel !== undefined) {
+            const s = scores.credit(interaction.user.id, record.gistId, solvedLevel);
+            // Rank-ups are announced only in the score channel (or wherever the game is, if none is configured).
+            const here = !cfg.scoreChannelId || cfg.scoreChannelId === interaction.channelId;
+            if (s.rankedUp && here) {
+              const levels = s.count === 1 ? '1 level' : s.count + ' levels';
+              await interaction.followUp({ content: '<@' + interaction.user.id + '> has solved ' + levels + ' and reached rank ' + s.rank + '.' })
+                .catch((e) => console.error('rank announcement failed', e && e.code));
+            }
+          }
         } catch (err) {
           // Keep the existing embed and image; keep buttons while the game is still playable.
           const rec = registry.get(gameId);

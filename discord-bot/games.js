@@ -102,6 +102,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
       touchLive(gameId);
       await enforceLiveLimit();
       const snapshot = await pool.snapshot(gameId);
+      rec.cur = { kind: snapshot.kind, levelIndex: snapshot.levelIndex };
       if (snapshot.kind === 'finished') rec.status = 'finished';
       persist(rec);
       return { record: rec, snapshot };
@@ -123,9 +124,15 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
           const applied = await pool.input(gameId, action);
           if (applied) rec.inputs.push(action);
           const snapshot = await pool.snapshot(gameId);
+          // A level is solved when a move (not continue/undo/restart) takes play from a level to a later one.
+          const prev = rec.cur;
+          const isMove = applied && !['continue', 'undo', 'restart'].includes(action);
+          const advanced = snapshot.kind === 'finished' || snapshot.levelIndex > (prev ? prev.levelIndex : Infinity);
+          const solvedLevel = isMove && prev && prev.kind === 'level' && advanced ? prev.levelIndex : null;
+          rec.cur = { kind: snapshot.kind, levelIndex: snapshot.levelIndex };
           if (snapshot.kind === 'finished') rec.status = 'finished';
           if (applied || snapshot.kind === 'finished') persist(rec);
-          return { record: rec, snapshot, applied };
+          return { record: rec, snapshot, applied, solvedLevel };
         } catch (e) {
           // EvictedError (bystander of another game's timeout) and other transient failures: not dead
           if (e.name === 'TimeoutError' || e.name === 'EngineError' || e.name === 'CompileError' || e.name === 'ResourceError') markDead(rec, e);

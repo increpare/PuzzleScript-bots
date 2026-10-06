@@ -26,6 +26,7 @@ function loadConfig(envPath = path.join(__dirname, '.env')) {
     appId: env.DISCORD_APP_ID,
     guildId: env.DISCORD_GUILD_ID,
     githubToken: env.GITHUB_TOKEN,
+    scoreChannelId: env.SCORE_CHANNEL_ID || null,
     dataDir: env.DATA_DIR || path.join(path.dirname(envPath), 'data'),
   };
 }

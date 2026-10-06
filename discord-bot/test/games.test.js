@@ -174,3 +174,19 @@ test('a changed gist source kills the game on next replay', async () => {
     await reg2.close();
   } finally { await pool.close(); }
 });
+
+test('press reports the solved level when a move wins it', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const two = fs.readFileSync(path.join(__dirname, 'fixtures', 'two-level-random.txt'), 'utf8');
+  const reg = createRegistry({ dataDir: dir, pool, getSource: async () => two });
+  try {
+    await reg.start({ gameId: 'w', channelId: 'c', gistId: 'abcd' });
+    const win = await reg.press('w', 'right');
+    assert.equal(win.solvedLevel, 0);
+    const move = await reg.press('w', 'left');
+    assert.equal(move.solvedLevel, null);
+    const undo = await reg.press('w', 'undo');
+    assert.equal(undo.solvedLevel, null);
+  } finally { await reg.close(); await pool.close(); }
+});
