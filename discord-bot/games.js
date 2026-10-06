@@ -109,7 +109,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
       } finally { unmarkBusy(gameId); }
     },
 
-    press(gameId, action) {
+    press(gameId, action, by) {
       if (closed) return Promise.reject(closedError());
       markBusy(gameId);
       return enqueue(gameId, async () => {
@@ -122,7 +122,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
         try {
           await ensureLive(rec);
           const applied = await pool.input(gameId, action);
-          if (applied) rec.inputs.push(action);
+          if (applied) { rec.inputs.push(action); if (by) rec.lastMover = String(by).slice(0, 80); }
           const snapshot = await pool.snapshot(gameId);
           // A level is solved when a move (not continue/undo/restart) takes play from a level to a later one.
           const prev = rec.cur;

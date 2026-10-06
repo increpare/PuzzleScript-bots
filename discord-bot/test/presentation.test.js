@@ -55,3 +55,9 @@ test('custom ids parse', () => {
   assert.equal(parseCustomId('ps:nope'), null);
   assert.equal(parseCustomId('other'), null);
 });
+
+test('footer names the last person who moved', () => {
+  const record = { meta: meta({}), status: 'playing', lastMover: 'increpare' };
+  const e = buildEmbed({ record, snapshot: { kind: 'level', levelIndex: 1, levelCount: 3 }, attachmentName: 'f.png' }).toJSON();
+  assert.equal(e.footer.text, 'Level 2 of 3 (Last move: increpare)');
+});

@@ -123,7 +123,7 @@ async function main() {
         await interaction.deferUpdate();
         console.log('ack', Date.now() - t0, 'ms');
         try {
-          const { record, snapshot, applied, solvedLevel } = await registry.press(gameId, action);
+          const { record, snapshot, applied, solvedLevel } = await registry.press(gameId, action, (interaction.member && interaction.member.displayName) || interaction.user.globalName || interaction.user.username);
           console.log('applied', applied, Date.now() - t0, 'ms');
           await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot)));
           console.log('edited', Date.now() - t0, 'ms');

@@ -190,3 +190,14 @@ test('press reports the solved level when a move wins it', async () => {
     assert.equal(undo.solvedLevel, null);
   } finally { await reg.close(); await pool.close(); }
 });
+
+test('press records who made the last applied move', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const reg = createRegistry({ dataDir: dir, pool, getSource });
+  try {
+    await reg.start({ gameId: 'lm', channelId: 'c', gistId: 'sok' });
+    assert.equal((await reg.press('lm', 'right', 'alice')).record.lastMover, 'alice');
+    assert.equal((await reg.press('lm', 'continue', 'bob')).record.lastMover, 'alice', 'inapplicable presses do not change it');
+  } finally { await reg.close(); await pool.close(); }
+});

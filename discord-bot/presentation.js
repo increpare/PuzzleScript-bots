@@ -25,7 +25,8 @@ function buildComponents(snapshot, meta) {
 function footerText(record, snapshot) {
   if (record.status === 'dead') return 'stopped: ' + (record.deadReason || 'error');
   if (snapshot.kind === 'finished' || record.status === 'finished') return 'finished';
-  return 'Level ' + ((snapshot.levelIndex | 0) + 1) + ' of ' + snapshot.levelCount;
+  const level = 'Level ' + ((snapshot.levelIndex | 0) + 1) + ' of ' + snapshot.levelCount;
+  return record.lastMover ? level + ' (Last move: ' + record.lastMover + ')' : level;
 }
 
 function buildEmbed({ record, snapshot, attachmentName }) {
