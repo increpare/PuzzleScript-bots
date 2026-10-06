@@ -32,6 +32,12 @@ test('embed carries title, author, level footer and attachment image', () => {
   assert.equal(dead.footer.text, 'stopped: timeout');
 });
 
+test('overlong titles are truncated to 256 characters', () => {
+  const record = { meta: Object.assign(meta({}), { title: 'x'.repeat(300) }), status: 'playing' };
+  const e = buildEmbed({ record, snapshot: { kind: 'level', levelIndex: 0, levelCount: 3 }, attachmentName: null }).toJSON();
+  assert.equal(e.title.length, 256);
+});
+
 test('custom ids parse', () => {
   assert.equal(parseCustomId('ps:up'), 'up');
   assert.equal(parseCustomId('ps:nope'), null);

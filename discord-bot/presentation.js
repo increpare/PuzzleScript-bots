@@ -30,8 +30,10 @@ function footerText(record, snapshot) {
 
 function buildEmbed({ record, snapshot, attachmentName }) {
   const meta = record.meta || {};
-  const e = new EmbedBuilder().setTitle(meta.title || 'PuzzleScript game').setFooter({ text: footerText(record, snapshot) });
-  if (meta.author) e.setDescription('by ' + meta.author);
+  const e = new EmbedBuilder()
+    .setTitle(String(meta.title || 'PuzzleScript game').slice(0, 256))
+    .setFooter({ text: footerText(record, snapshot).slice(0, 2048) });
+  if (meta.author) e.setDescription(('by ' + meta.author).slice(0, 4096));
   if (attachmentName) e.setImage('attachment://' + attachmentName);
   return e;
 }
