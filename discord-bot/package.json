@@ -1,0 +1,16 @@
+{
+  "name": "puzzlescript-discord-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Play PuzzleScript games inside Discord",
+  "main": "bot.js",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node --test test/",
+    "start": "node bot.js",
+    "register": "node register-commands.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3"
+  }
+}
