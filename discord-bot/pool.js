@@ -5,6 +5,7 @@ const { Worker } = require('node:worker_threads');
 function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = () => {} } = {}) {
   // entry: {worker, queue: item[], inflight: item|null, games: Set}
   // item:  {id, gameId, op, args, deadlineMs, resolve, reject, timer}
+  const evictionListeners = [onEvicted];
   const workers = [];
   const gameToWorker = new Map();
   let nextId = 1;
@@ -51,7 +52,9 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = (
     if (!closed) {
       workers.push(spawn());
       if (evicted.length) {
-        try { onEvicted(evicted); } catch (e) { /* listener errors must not break the pool */ }
+        for (const fn of evictionListeners) {
+          try { fn(evicted); } catch (e) { /* listener errors must not break the pool */ }
+        }
       }
     }
   }
@@ -105,6 +108,7 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = (
     },
     input(gameId, action) { return call(entryFor(gameId), gameId, 'input', { action }, inputMs); },
     snapshot(gameId) { return call(entryFor(gameId), gameId, 'snapshot', {}, inputMs); },
+    onEvicted(fn) { evictionListeners.push(fn); },
     has(gameId) { return gameToWorker.has(gameId); },
     async drop(gameId) {
       const entry = gameToWorker.get(gameId);
