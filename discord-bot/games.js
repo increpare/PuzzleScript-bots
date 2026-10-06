@@ -143,6 +143,11 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
       return n;
     },
 
+    markDead(gameId, reason) {
+      const rec = records.get(gameId);
+      if (rec) markDead(rec, reason);
+    },
+
     prune(maxAgeMs) {
       let n = 0;
       for (const rec of [...records.values()]) {
