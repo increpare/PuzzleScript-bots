@@ -6,7 +6,7 @@
   "main": "bot.js",
   "engines": { "node": ">=18" },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test",
     "start": "node bot.js",
     "register": "node register-commands.js"
   },
