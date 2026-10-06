@@ -1,0 +1,61 @@
+title two level random
+author test
+
+========
+OBJECTS
+========
+
+Background
+black
+
+Player
+red
+
+Goal
+green
+
+Coin
+yellow
+
+=======
+LEGEND
+=======
+
+. = Background
+P = Player
+G = Goal
+C = Coin
+
+=======
+SOUNDS
+=======
+
+================
+COLLISIONLAYERS
+================
+
+Background
+Goal
+Player, Coin
+
+======
+RULES
+======
+
+random [ Coin ] -> [ ]
+
+==============
+WINCONDITIONS
+==============
+
+some Player on Goal
+
+=======
+LEVELS
+=======
+
+PG
+
+CCCCCCCCCC
+CCCCPGCCCC
+CCCCCCCCCC

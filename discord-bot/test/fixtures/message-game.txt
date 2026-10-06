@@ -1,0 +1,61 @@
+title message game
+author test
+
+========
+OBJECTS
+========
+
+Background
+black
+
+Player
+red
+
+Goal
+green
+
+Switch
+blue
+
+=======
+LEGEND
+=======
+
+. = Background
+P = Player
+G = Goal
+S = Switch
+
+=======
+SOUNDS
+=======
+
+================
+COLLISIONLAYERS
+================
+
+Background
+Goal, Switch
+Player
+
+======
+RULES
+======
+
+[ > Player | Switch ] -> [ > Player | ] message you pressed it
+
+==============
+WINCONDITIONS
+==============
+
+some Player on Goal
+
+=======
+LEVELS
+=======
+
+message welcome to the message game
+
+PS.G
+
+message that is all

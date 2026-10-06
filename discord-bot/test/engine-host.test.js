@@ -55,3 +55,116 @@ test('realtime games are flagged', () => {
   assert.equal(meta.flags.realtime, true);
   host.dispose();
 });
+
+const FIXTURE = (name) => fs.readFileSync(path.join(__dirname, 'fixtures', name), 'utf8');
+
+test('moving the player changes the level string', () => {
+  const host = createHost();
+  host.load(SOKOBAN, 'seed', 0);
+  const before = host.levelString();
+  assert.equal(host.input('right'), true);
+  assert.notEqual(host.levelString(), before);
+  assert.equal(host.input('undo'), true);
+  assert.equal(host.levelString(), before);
+  host.dispose();
+});
+
+test('restart returns to the level start', () => {
+  const host = createHost();
+  host.load(SOKOBAN, 'seed', 0);
+  const before = host.levelString();
+  host.input('right'); host.input('right'); host.input('up');
+  host.input('restart');
+  assert.equal(host.levelString(), before);
+  host.dispose();
+});
+
+test('message levels require continue, then play resumes', () => {
+  const host = createHost();
+  const meta = host.load(FIXTURE('message-game.txt'), 'seed', 0);
+  assert.equal(meta.levelCount, 3);
+  assert.equal(host.snapshot().kind, 'message');
+  assert.equal(host.snapshot().message, 'welcome to the message game');
+  assert.equal(host.input('right'), false, 'directions are ignored on a message');
+  assert.equal(host.input('continue'), true);
+  assert.equal(host.snapshot().kind, 'level');
+  assert.equal(host.snapshot().levelIndex, 1);
+  host.dispose();
+});
+
+test('in-rule messages show as an overlay and continue clears them', () => {
+  const host = createHost();
+  host.load(FIXTURE('message-game.txt'), 'seed', 1);
+  host.input('right'); // pushes onto the switch, fires message
+  const s = host.snapshot();
+  assert.equal(s.kind, 'message');
+  assert.equal(s.message, 'you pressed it');
+  assert.equal(host.input('continue'), true);
+  assert.equal(host.snapshot().kind, 'level');
+  assert.equal(host.snapshot().levelIndex, 1);
+  host.dispose();
+});
+
+test('winning the last level reports finished', () => {
+  const host = createHost();
+  host.load(FIXTURE('message-game.txt'), 'seed', 1);
+  host.input('right'); host.input('continue'); host.input('right'); host.input('right');
+  // level 1 won -> level 2 is a message -> continue -> past the end
+  assert.equal(host.snapshot().kind, 'message');
+  host.input('continue');
+  assert.equal(host.snapshot().kind, 'finished');
+  assert.equal(host.input('right'), false);
+  host.dispose();
+});
+
+test('noaction games ignore the action input', () => {
+  const host = createHost();
+  const src = SOKOBAN.replace('homepage www.puzzlescript.net', 'homepage www.puzzlescript.net\nnoaction');
+  const meta = host.load(src, 'seed', 0);
+  assert.equal(meta.flags.noaction, true);
+  assert.equal(host.input('action'), false);
+  host.dispose();
+});
+
+test('replay is deterministic across level transitions for random games', () => {
+  const run = () => {
+    const host = createHost();
+    host.load(FIXTURE('two-level-random.txt'), 'fixed-seed', 0);
+    host.input('right'); // wins level 1, loads level 2 (random coin removal happens per move)
+    host.input('left'); host.input('right'); host.input('left');
+    const out = host.levelString();
+    host.dispose();
+    return out;
+  };
+  assert.equal(run(), run());
+});
+
+test('host matches the engine test harness on recorded sessions', () => {
+  // Load testdata.js the same way the harness does: it declares a top-level array.
+  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'resources', 'testdata.js'), 'utf8');
+  const sandbox = {};
+  require('node:vm').runInNewContext(src + '\n;this.__testdata = testdata;', sandbox);
+  const testdata = sandbox.__testdata;
+  assert.ok(testdata.length > 100);
+  let checked = 0;
+  for (const [name, dat] of testdata) {
+    const [source, inputs, expected, targetLevel, seed] = dat;
+    if (/realtime_interval/.test(source)) continue;
+    const host = createHost();
+    try {
+      host.load(source, seed === undefined || seed === null ? 'seed' : seed, targetLevel === undefined ? 0 : targetLevel);
+      for (const v of inputs) {
+        if (v === 'undo') host.input('undo');
+        else if (v === 'restart') host.input('restart');
+        else if (v === 'tick') host.tick();
+        else host._rawInput(v);
+      }
+      assert.equal(host.levelString(), expected, 'mismatch in test "' + name + '"');
+      checked++;
+    } catch (e) {
+      if (e instanceof CompileError) continue; // harness compile-error cases are not play sessions
+      throw e;
+    } finally { host.dispose(); }
+  }
+  assert.ok(checked > 300, 'expected most sessions to be checked, got ' + checked);
+});

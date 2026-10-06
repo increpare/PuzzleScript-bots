@@ -75,6 +75,7 @@ function createHost() {
     get curlevel() { return curlevel; },
     get titleScreen() { return titleScreen; },
     get messagetext() { return messagetext; },
+    set messagetext(v) { messagetext = v; },
     get againing() { return againing; },
     set againing(v) { againing = v; },
     get oldflickscreendat() { return oldflickscreendat; },
@@ -111,7 +112,7 @@ function createHost() {
     gameSeed = String(seed);
     resetErrors();
     try {
-      ctx.compile(['loadLevel', levelIndex | 0], source, gameSeed + ':' + (levelIndex | 0));
+      ctx.compile(['loadLevel', levelIndex | 0], source, gameSeed);
     } catch (e) {
       throw new CompileError(ps.errorCount > 0 ? firstError() : String(e && e.message || e));
     }
@@ -214,8 +215,54 @@ function createHost() {
     return Object.assign(base, { kind: 'level', width: level.width, height: level.height, cells, sprites, viewport: viewport() });
   }
 
+  const DIRS = { up: 0, left: 1, down: 2, right: 3, action: 4 };
+
+  function kindNow() {
+    if (ps.titleScreen) return 'finished';
+    const leveldat = ps.state.levels[ps.curlevel];
+    if (leveldat && leveldat.message !== undefined) return 'messageLevel';
+    if (ps.messagetext && ps.messagetext.length > 0) return 'messageRule';
+    return 'level';
+  }
+
+  function rawInput(code) {
+    ctx.processInput(code);
+    drainAgain();
+  }
+
+  function tick() { rawInput(-1); }
+
+  function input(action) {
+    const kind = kindNow();
+    if (action === 'continue') {
+      if (kind === 'messageLevel') { ctx.nextLevel(); drainAgain(); return true; }
+      if (kind === 'messageRule') { ps.messagetext = ''; return true; }
+      return false;
+    }
+    if (kind !== 'level') return false;
+    if (action === 'undo') {
+      if ('noundo' in ps.state.metadata) return false;
+      ctx.DoUndo(false, true); drainAgain(); return true;
+    }
+    if (action === 'restart') {
+      if ('norestart' in ps.state.metadata) return false;
+      ctx.DoRestart(); drainAgain(); return true;
+    }
+    if (!(action in DIRS)) return false;
+    if (action === 'action' && 'noaction' in ps.state.metadata) return false;
+    rawInput(DIRS[action]);
+    return true;
+  }
+
+  function replay(actions) { for (const a of actions) input(a); }
+
   return {
     load,
+    input,
+    tick,
+    replay,
+    _rawInput: rawInput,
+    _ps: ps,
     snapshot,
     levelString: () => ctx.convertLevelToString(),
     dispose() { /* nothing to free; the context is garbage collected */ },
