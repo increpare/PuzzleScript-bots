@@ -82,7 +82,8 @@ A single leading `!` is allowed on input commands (`!up`).
 ### `chat.js` — Twitch chat, read-only
 
 A TLS connection to `irc.chat.twitch.tv:6697` logged in anonymously
-(`NICK justinfan<digits>`), joined to `#<channel>`. It answers `PING`, parses
+(`NICK justinfan<digits>`), joined to `#<channel>`. Twitch's server accepted
+this login when tried on 2026-10-07. It answers `PING`, parses
 `PRIVMSG` lines into `{user, text}` where `user` is the login name (always
 ASCII, so it renders in the engine font), and reconnects with backoff
 (1 s doubling to 30 s) on close, error or a server `RECONNECT`. No Twitch
@@ -92,10 +93,6 @@ token is needed.
 
 - The gallery list (`loadGallery()`) in a shuffled order, reshuffled at the
   end of each pass. Order and position persist in `data/state.json`.
-- A game is skipped if its source cannot be fetched, it fails to compile, it
-  times out, or it sets `realtime_interval`. After 10 consecutive skips the
-  rotation waits 60 s (GitHub is probably unreachable) and the stream shows a
-  "back soon" message frame.
 - `data/progress.json` maps gist id to the level index reached. A game starts
   at that level, or at 0 if the index is past the end. Finishing a game clears
   its entry.
@@ -105,6 +102,10 @@ token is needed.
 Owns one game in the worker pool (pool size 1; compile limit 10 s, input
 limit 3 s, as in the Discord bot) and everything chat does to it.
 
+- **Loading**: a game is skipped if its source cannot be fetched, it fails to
+  compile, it times out, it sets `realtime_interval`, or it has nothing to
+  play. After 10 consecutive skips the session waits 60 s (GitHub is probably
+  unreachable) and the stream shows a "back soon" message frame.
 - **Inputs** go into a queue and are applied one at a time. At most 30 wait;
   more are dropped. The queue is emptied whenever the level changes or a
   message screen appears, so moves aimed at the old screen do not spill into
@@ -223,8 +224,9 @@ deployment in `~/puzzlescript-bot/`.
 - Tests for `frameTiles()` and the pool `tiles` operation beside the existing
   Discord bot tests, which must keep passing.
 - An end-to-end run: the real pipeline with `OUTPUT` set to a local file and
-  a scripted chat, 30 s, then ffprobe checks for one 1280×720 H.264 stream
-  and one AAC stream, keyframes at most 2.1 s apart, and continuous audio.
+  a scripted chat, about 12 s, then ffprobe checks for one 1280×720 H.264
+  stream and one AAC stream, keyframes at most 2.2 s apart, and continuous
+  audio.
   Skipped where ffmpeg is not installed.
 
 ## To verify on the first live stream
@@ -234,6 +236,7 @@ These cannot be tested without the user's stream key.
 1. Twitch accepts a stream whose video idles at 1 fps. If it does not, raise
    `MIN_FPS`. From the per-frame cost above, the whole pipeline should take
    roughly 11% of a core at 5 and 18% at 10.
-2. Anonymous chat login is still accepted. If not, add login with a token.
+2. Chat messages from the real channel arrive over the anonymous login. If
+   not, add login with a token.
 3. The 1-second output bursts cause no buffering for viewers. Raising
    `MIN_FPS` shortens them.
