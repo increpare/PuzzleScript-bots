@@ -143,14 +143,11 @@ function createHost() {
   }
 
   function findPlayer() {
+    const positions = ctx.getPlayerPositions();
+    if (positions.length === 0) return null;
+    const i = positions[0];
     const level = ps.level;
-    const mask = ps.state.playerMask;
-    const probe = new ctx.BitVec(ps.STRIDE_OBJ);
-    for (let i = 0; i < level.n_tiles; i++) {
-      level.getCellInto(i, probe);
-      if (probe.anyBitsInCommon(mask)) return { x: (i / level.height) | 0, y: i % level.height };
-    }
-    return null;
+    return { x: (i / level.height) | 0, y: i % level.height };
   }
 
   function viewport() {

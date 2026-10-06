@@ -168,3 +168,14 @@ test('host matches the engine test harness on recorded sessions', () => {
   }
   assert.ok(checked > 300, 'expected most sessions to be checked, got ' + checked);
 });
+
+test('flickscreen viewport is the page containing the player', () => {
+  const host = createHost();
+  const src = SOKOBAN.replace('homepage www.puzzlescript.net', 'homepage www.puzzlescript.net\nflickscreen 4x4');
+  host.load(src, 'seed', 0);
+  const s = host.snapshot();
+  assert.equal(s.viewport.w <= 4 && s.viewport.h <= 4, true);
+  assert.equal(s.viewport.x % 4, 0);
+  assert.equal(s.viewport.y % 4, 0);
+  host.dispose();
+});
