@@ -14,6 +14,8 @@ const AGAIN_LIMIT = 10000;
 
 class CompileError extends Error {}
 class EngineError extends Error {}
+CompileError.prototype.name = 'CompileError';
+EngineError.prototype.name = 'EngineError';
 
 let engineScript = null;
 function getEngineScript() {
