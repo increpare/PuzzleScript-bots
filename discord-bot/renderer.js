@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { encodePNG } = require('./png');
 
-const MAX_SIDE = 800;
+const FRAME_W = 400, FRAME_H = 300;
 const CELL = 5;
 
 const isTransparent = (c) => String(c).trim().toLowerCase() === 'transparent';
@@ -39,10 +39,6 @@ function fillRect(img, x, y, w, h, rgb) {
   }
 }
 
-function scaleFor(cellsW, cellsH, cellPx) {
-  return Math.max(1, Math.floor(MAX_SIDE / (cellPx * Math.max(cellsW, cellsH))));
-}
-
 function dominantColour(sprite) {
   const v0 = sprite.dat && sprite.dat[2] ? sprite.dat[2][2] : undefined;
   if (v0 !== undefined && v0 >= 0 && sprite.colors[v0] !== undefined && !isTransparent(sprite.colors[v0])) return sprite.colors[v0];
@@ -61,15 +57,35 @@ function dominantColour(sprite) {
   return null;
 }
 
-// Very large viewports: one flat square per cell so the output stays within MAX_SIDE.
-function renderLevelBlocks(s) {
-  const { x: vx, y: vy, w: vw, h: vh } = s.viewport;
-  const block = Math.max(1, Math.floor(MAX_SIDE / Math.max(vw, vh)));
+// Where the level is drawn inside the fixed FRAME_W x FRAME_H canvas.
+// mode 'sprite': 5x5 sprites at integer scale; 'block': one flat square per cell
+// (scale = block size; cw/ch cells drawn, cropped to the top-left if even block 1 overflows).
+function levelLayout(s) {
+  const { w: vw, h: vh } = s.viewport;
+  if (vw * CELL <= FRAME_W && vh * CELL <= FRAME_H) {
+    const scale = Math.max(1, Math.floor(Math.min(FRAME_W / (CELL * vw), FRAME_H / (CELL * vh))));
+    return {
+      mode: 'sprite', scale, cw: vw, ch: vh,
+      ox0: Math.floor((FRAME_W - vw * CELL * scale) / 2), oy0: Math.floor((FRAME_H - vh * CELL * scale) / 2),
+    };
+  }
+  const scale = Math.max(1, Math.floor(Math.min(FRAME_W / vw, FRAME_H / vh)));
+  const cw = Math.min(vw, FRAME_W), ch = Math.min(vh, FRAME_H);
+  return {
+    mode: 'block', scale, cw, ch,
+    ox0: Math.floor((FRAME_W - cw * scale) / 2), oy0: Math.floor((FRAME_H - ch * scale) / 2),
+  };
+}
+
+// Very large viewports: one flat square per cell.
+function renderLevelBlocks(s, lay) {
+  const { x: vx, y: vy } = s.viewport;
+  const block = lay.scale;
   const bg = isTransparent(s.background) ? '#000000' : s.background;
-  const img = makeImage(vw * block, vh * block, bg);
+  const img = makeImage(FRAME_W, FRAME_H, bg);
   const cache = {};
-  for (let cx = 0; cx < vw; cx++) {
-    for (let cy = 0; cy < vh; cy++) {
+  for (let cx = 0; cx < lay.cw; cx++) {
+    for (let cy = 0; cy < lay.ch; cy++) {
       const ids = s.cells[(vx + cx) * s.height + (vy + cy)];
       if (!ids || !ids.length) continue;
       let top = -Infinity;
@@ -77,7 +93,7 @@ function renderLevelBlocks(s) {
       if (top === -Infinity) continue;
       if (!(top in cache)) cache[top] = dominantColour(s.sprites[top]);
       if (cache[top] === null) continue;
-      fillRect(img, cx * block, cy * block, block, block, parseHex(cache[top]));
+      fillRect(img, lay.ox0 + cx * block, lay.oy0 + cy * block, block, block, parseHex(cache[top]));
     }
   }
   return img;
@@ -85,9 +101,10 @@ function renderLevelBlocks(s) {
 
 function renderLevelRGBA(s) {
   const { x: vx, y: vy, w: vw, h: vh } = s.viewport;
-  if (Math.max(vw, vh) * CELL > MAX_SIDE) return renderLevelBlocks(s);
-  const scale = scaleFor(vw, vh, CELL);
-  const img = makeImage(vw * CELL * scale, vh * CELL * scale, isTransparent(s.background) ? '#000000' : s.background);
+  const lay = levelLayout(s);
+  if (lay.mode === 'block') return renderLevelBlocks(s, lay);
+  const { scale, ox0, oy0 } = lay;
+  const img = makeImage(FRAME_W, FRAME_H, isTransparent(s.background) ? '#000000' : s.background);
   const colourCache = {};
   const rgbOf = (hex) => (colourCache[hex] || (colourCache[hex] = parseHex(hex)));
   for (let cx = 0; cx < vw; cx++) {
@@ -105,7 +122,7 @@ function renderLevelRGBA(s) {
             if (v === undefined || v < 0) continue;
             const colour = sprite.colors[v];
             if (colour === undefined || isTransparent(colour)) continue;
-            fillRect(img, (cx * CELL + col) * scale, (cy * CELL + row) * scale, scale, scale, rgbOf(colour));
+            fillRect(img, ox0 + (cx * CELL + col) * scale, oy0 + (cy * CELL + row) * scale, scale, scale, rgbOf(colour));
           }
         }
       }
@@ -114,7 +131,7 @@ function renderLevelRGBA(s) {
   return img;
 }
 
-const TERMINAL_W = 34, TERMINAL_H = 13, GLYPH_W = 5, GLYPH_H = 12, CHAR_W = 6, CHAR_H = 13;
+const TERMINAL_W = 33, TERMINAL_H = 11, TEXT_SCALE = 2, GLYPH_W = 5, GLYPH_H = 12, CHAR_W = 6, CHAR_H = 13;
 
 let glyphs = null;
 function getGlyphs() {
@@ -139,7 +156,7 @@ function wordwrap(str, width) {
 
 function layoutText(message) {
   const lines = wordwrap(String(message).trim(), TERMINAL_W).slice(0, TERMINAL_H - 1);
-  let offset = 5 - ((lines.length / 2) | 0);
+  let offset = 4 - ((lines.length / 2) | 0);
   if (offset < 0) offset = 0;
   const grid = [];
   for (let r = 0; r < TERMINAL_H; r++) grid.push(' '.repeat(TERMINAL_W));
@@ -155,8 +172,9 @@ function layoutText(message) {
 function renderTextRGBA(s) {
   const text = s.kind === 'finished' ? 'finished' : s.message || '';
   const grid = layoutText(text);
-  const scale = scaleFor(TERMINAL_W, TERMINAL_H, CHAR_W);
-  const img = makeImage(TERMINAL_W * CHAR_W * scale, TERMINAL_H * CHAR_H * scale, s.background || '#000000');
+  const scale = TEXT_SCALE;
+  const ox0 = Math.floor((FRAME_W - TERMINAL_W * CHAR_W * scale) / 2), oy0 = Math.floor((FRAME_H - TERMINAL_H * CHAR_H * scale) / 2);
+  const img = makeImage(FRAME_W, FRAME_H, s.background || '#000000');
   const ink = parseHex(s.textColor || '#ffffff');
   const font = getGlyphs();
   for (let r = 0; r < TERMINAL_H; r++) {
@@ -165,7 +183,7 @@ function renderTextRGBA(s) {
       if (ch === ' ' || !font[ch]) continue; // unknown glyphs (CJK) are skipped
       const g = font[ch];
       for (let gy = 0; gy < GLYPH_H; gy++) for (let gx = 0; gx < GLYPH_W; gx++) {
-        if (g[gy] && g[gy][gx]) fillRect(img, (c * CHAR_W + gx) * scale, (r * CHAR_H + gy) * scale, scale, scale, ink);
+        if (g[gy] && g[gy][gx]) fillRect(img, ox0 + (c * CHAR_W + gx) * scale, oy0 + (r * CHAR_H + gy) * scale, scale, scale, ink);
       }
     }
   }
@@ -177,4 +195,4 @@ function renderSnapshot(s) {
   return { png: encodePNG(img.width, img.height, img.rgba), width: img.width, height: img.height };
 }
 
-module.exports = { renderSnapshot, renderLevelRGBA, renderTextRGBA, layoutText, parseHex, makeImage, fillRect, scaleFor };
+module.exports = { renderSnapshot, renderLevelRGBA, renderTextRGBA, layoutText, levelLayout, parseHex, makeImage, fillRect, FRAME_W, FRAME_H };

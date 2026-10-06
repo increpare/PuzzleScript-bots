@@ -37,4 +37,5 @@ Typing `/play` suggests games from the puzzlescript.net gallery; any gist id or 
 - Games persist under `discord-bot/data/games/`, gist cache under `data/gists/`.
   Idle games are pruned after 14 days.
 - Editing a gist ends games in progress on it (the bot replays inputs against the original source and refuses to continue if it changed).
+- Every frame is 400×300 px (matches Discord's embed placeholder size so the panel never resizes).
 - Limits: 1 MB source, 10 s compile, 3 s per input, 30 live games.

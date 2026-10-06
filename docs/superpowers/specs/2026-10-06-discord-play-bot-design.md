@@ -65,7 +65,7 @@ The host never touches Discord. It is unit-tested on its own.
 
 - Level frames: each visible cell drawn from the 5×5 sprite matrices and
   palette colours, layers composited bottom-up, on `background_color`
-  (default black). Integer upscale so the longer side is at most 800 px.
+  (default black). Integer upscale, centred on a fixed 400×300 canvas (matches Discord's embed placeholder size).
 - Message frames: the message text wrapped and rendered with the engine's
   bitmap font (`src/js/font.js`) in `text_color` on `background_color`, with
   the same proportions as the in-game message screen.
@@ -137,7 +137,7 @@ The host never touches Discord. It is unit-tested on its own.
 | Input budget | 3 s |
 | Live games | 30 |
 | Record retention | 14 days idle |
-| Image width | ≤ 800 px |
+| Image size | 400×300 px |
 
 ## Configuration
 
