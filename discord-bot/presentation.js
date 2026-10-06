@@ -33,7 +33,7 @@ function buildEmbed({ record, snapshot, attachmentName }) {
   const e = new EmbedBuilder()
     .setTitle(String(meta.title || 'PuzzleScript game').slice(0, 256))
     .setFooter({ text: footerText(record, snapshot).slice(0, 2048) });
-  if (meta.author) e.setDescription(('by ' + meta.author).slice(0, 4096));
+  if (meta.author) e.setDescription(('by ' + meta.author).slice(0, 1000));
   if (attachmentName) e.setImage('attachment://' + attachmentName);
   return e;
 }

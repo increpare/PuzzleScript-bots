@@ -13,7 +13,7 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = (
   let closed = false;
 
   function spawn() {
-    const entry = { worker: new Worker(path.join(__dirname, 'worker.js')), queue: [], inflight: null, games: new Set() };
+    const entry = { worker: new Worker(path.join(__dirname, 'worker.js'), { resourceLimits: { maxOldGenerationSizeMb: 512 } }), queue: [], inflight: null, games: new Set() };
     entry.worker.on('message', (msg) => {
       const item = entry.inflight;
       if (!item || item.id !== msg.id) return;
@@ -23,7 +23,17 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = (
       else item.reject(Object.assign(new Error(msg.error.message), { name: msg.error.name }));
       pump(entry);
     });
-    entry.worker.on('error', (err) => kill(entry, err));
+    entry.worker.on('error', (err) => {
+      const item = entry.inflight;
+      if (item) {
+        clearTimeout(item.timer);
+        entry.inflight = null;
+        entry.games.delete(item.gameId);
+        if (gameToWorker.get(item.gameId) === entry) gameToWorker.delete(item.gameId);
+        item.reject(Object.assign(new Error('worker crashed: ' + (err && err.message || err)), { name: 'ResourceError' }));
+      }
+      kill(entry, Object.assign(new Error('worker evicted'), { name: 'EvictedError' }));
+    });
     entry.worker.on('exit', () => { if (!closed) kill(entry, new Error('worker exited')); });
     return entry;
   }
@@ -91,7 +101,7 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = (
 
   return {
     async load(gameId, source, seed, levelIndex) {
-      if (closed) throw new Error('pool closed');
+      if (closed) throw Object.assign(new Error('pool closed'), { name: 'PoolClosedError' });
       let entry = gameToWorker.get(gameId);
       if (!entry) { entry = workers[rr++ % workers.length]; }
       gameToWorker.set(gameId, entry);

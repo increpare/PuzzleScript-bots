@@ -1,6 +1,9 @@
 'use strict';
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const path = require('node:path');
+
+const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
 function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now }) {
   const gamesDir = path.join(dataDir, 'games');
@@ -53,6 +56,11 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
   async function ensureLive(rec) {
     if (pool.has(rec.gameId)) { touchLive(rec.gameId); return; }
     const source = await getSource(rec.gistId);
+    if (rec.sourceHash && rec.sourceHash !== sha256(source)) {
+      const err = Object.assign(new Error('the game source changed'), { name: 'EngineError' });
+      markDead(rec, err);
+      throw err;
+    }
     try {
       await pool.load(rec.gameId, source, rec.seed, rec.startLevel);
       if (rec.inputs.length) await pool.apply(rec.gameId, rec.inputs);
@@ -88,7 +96,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
       markBusy(gameId);
       try {
       const source = await getSource(gistId);
-      const rec = { gameId, channelId, gistId, seed: gameId, startLevel, inputs: [], status: 'playing', meta: null, createdAt: now(), updatedAt: now() };
+      const rec = { gameId, channelId, gistId, seed: gameId, sourceHash: sha256(source), startLevel, inputs: [], status: 'playing', meta: null, createdAt: now(), updatedAt: now() };
       rec.meta = await pool.load(gameId, source, rec.seed, startLevel);
       records.set(gameId, rec);
       touchLive(gameId);
@@ -120,7 +128,12 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
           return { record: rec, snapshot, applied };
         } catch (e) {
           // EvictedError (bystander of another game's timeout) and other transient failures: not dead
-          if (e.name === 'TimeoutError' || e.name === 'EngineError' || e.name === 'CompileError') markDead(rec, e);
+          if (e.name === 'TimeoutError' || e.name === 'EngineError' || e.name === 'CompileError' || e.name === 'ResourceError') markDead(rec, e);
+          else if (!['EvictedError', 'PoolClosedError', 'RegistryClosedError', 'NoGameError', 'GistError'].includes(e.name)) {
+            // unknown failure: the host may have diverged from the input log; rebuild on next press
+            await pool.drop(gameId).catch(() => {});
+            forgetLive(gameId);
+          }
           throw e;
         }
        } finally { unmarkBusy(gameId); }

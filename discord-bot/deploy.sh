@@ -14,4 +14,4 @@ ssh "$HOST" "cd ~/$DEST/discord-bot && npm ci --omit=dev --no-audit --no-fund \
   && systemctl --user daemon-reload \
   && systemctl --user enable puzzlescript-bot >/dev/null \
   && systemctl --user restart puzzlescript-bot \
-  && sleep 2 && systemctl --user --no-pager status puzzlescript-bot | head -5"
+  && sleep 2 && systemctl --user is-active --quiet puzzlescript-bot && systemctl --user --no-pager status puzzlescript-bot | head -5"

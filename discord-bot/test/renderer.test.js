@@ -95,3 +95,30 @@ test('finished frames render', () => {
   const out = renderSnapshot({ kind: 'finished', background: '#101010', textColor: '#ffffff' });
   assert.ok(out.png.length > 100);
 });
+
+test('parseHex expands short hex', () => {
+  const { parseHex } = require('../renderer');
+  assert.deepEqual(parseHex('#f00'), [255, 0, 0, 255]);
+});
+
+test('coincounter renders without magenta fallback pixels', () => {
+  const host = createHost();
+  host.load(fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'demo', 'coincounter.txt'), 'utf8'), 'seed', 0);
+  const img = renderLevelRGBA(host.snapshot());
+  for (let i = 0; i < img.rgba.length; i += 4) {
+    assert.ok(!(img.rgba[i] === 255 && img.rgba[i + 1] === 0 && img.rgba[i + 2] === 255), 'magenta pixel at ' + i / 4);
+  }
+});
+
+test('huge viewports render in block mode within 800px', () => {
+  const n = 400;
+  const dat = [0, 1, 2, 3, 4].map(() => [0, 0, 0, 0, 0]);
+  const s = {
+    kind: 'level', width: n, height: n, viewport: { x: 0, y: 0, w: n, h: n }, background: '#000000',
+    sprites: { 0: { dat, colors: ['#123456'] } },
+    cells: Array.from({ length: n * n }, () => [0]),
+  };
+  const img = renderLevelRGBA(s);
+  assert.ok(img.width <= 800 && img.height <= 800);
+  assert.deepEqual(px(img, img.width >> 1, img.height >> 1), [0x12, 0x34, 0x56, 255]);
+});

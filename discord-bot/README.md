@@ -34,4 +34,5 @@ The bot loads the engine from `../src/js`, so it must sit beside a copy of
 - Logs: `journalctl --user -u puzzlescript-bot -f`
 - Games persist under `discord-bot/data/games/`, gist cache under `data/gists/`.
   Idle games are pruned after 14 days.
+- Editing a gist ends games in progress on it (the bot replays inputs against the original source and refuses to continue if it changed).
 - Limits: 1 MB source, 10 s compile, 3 s per input, 30 live games.

@@ -61,12 +61,12 @@ test('revalidates stale cache with the etag and keeps content on 304', async () 
     { status: 200, headers: { etag: '"def"' }, body: { files: { 'script.txt': { content: 'v2' } } } },
   ]);
   const store = createGistStore({ dataDir: dir, token: 'tok', fetchImpl: impl, now: () => t });
-  await store.getSource('id1');
+  await store.getSource('ab01');
   t += 11 * 60 * 1000;
-  assert.equal(await store.getSource('id1'), 'v1');
+  assert.equal(await store.getSource('ab01'), 'v1');
   assert.equal(calls[1].opts.headers['if-none-match'], '"abc"');
   t += 11 * 60 * 1000;
-  assert.equal(await store.getSource('id1'), 'v2');
+  assert.equal(await store.getSource('ab01'), 'v2');
 });
 
 test('errors are user-facing', async () => {
@@ -77,7 +77,7 @@ test('errors are user-facing', async () => {
     { status: 200, headers: {}, body: { files: { 'script.txt': { content: 'x'.repeat(1_000_001) } } } },
   ]);
   const store = createGistStore({ dataDir: dir, token: 'tok', fetchImpl: impl });
-  await assert.rejects(store.getSource('a'), (e) => e instanceof GistError && /not found/.test(e.message));
-  await assert.rejects(store.getSource('b'), (e) => e instanceof GistError && /script\.txt/.test(e.message));
-  await assert.rejects(store.getSource('c'), (e) => e instanceof GistError && /too large/.test(e.message));
+  await assert.rejects(store.getSource('aaaa'), (e) => e instanceof GistError && /not found/.test(e.message));
+  await assert.rejects(store.getSource('bbbb'), (e) => e instanceof GistError && /script\.txt/.test(e.message));
+  await assert.rejects(store.getSource('cccc'), (e) => e instanceof GistError && /too large/.test(e.message));
 });

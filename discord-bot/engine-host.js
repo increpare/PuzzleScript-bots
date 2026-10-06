@@ -113,6 +113,9 @@ function createHost() {
   function load(source, seed, levelIndex) {
     gameSeed = String(seed);
     resetErrors();
+    // Seeding asymmetry: the first level is seeded with the raw game seed (matching the
+    // harness); later loads derive 'seed:curlevel' (see loadLevelFromLevelDat). Rebuilds
+    // always start from startLevel, so replaying the input log is deterministic.
     try {
       ctx.compile(['loadLevel', levelIndex | 0], source, gameSeed);
     } catch (e) {

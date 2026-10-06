@@ -20,7 +20,7 @@ function frame(record, snapshot) {
   };
 }
 
-function userMessage(err) {
+function userMessageRaw(err) {
   if (err instanceof GistError) return err.message;
   const name = err && err.name;
   if (name === 'NoGameError') return 'this game is no longer available';
@@ -33,6 +33,10 @@ function userMessage(err) {
   return 'something went wrong';
 }
 
+function userMessage(err) {
+  return String(userMessageRaw(err)).slice(0, 1900);
+}
+
 async function main() {
   const cfg = loadConfig();
   const pool = createPool({ size: 2 });
@@ -41,7 +45,17 @@ async function main() {
   console.log('loaded', registry.loadAll(), 'games;', 'pruned', registry.prune(PRUNE_MS));
   setInterval(() => console.log('pruned', registry.prune(PRUNE_MS)), 24 * 3600 * 1000).unref();
 
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  const client = new Client({ intents: [GatewayIntentBits.Guilds], allowedMentions: { parse: [] } });
+
+  // Per-game chain so button edits land in press order.
+  const editChains = new Map();
+  function enqueueEdit(gameId, fn) {
+    const prev = editChains.get(gameId) || Promise.resolve();
+    const tail = prev.then(fn).catch((e) => console.error('edit failed', e));
+    editChains.set(gameId, tail);
+    tail.then(() => { if (editChains.get(gameId) === tail) editChains.delete(gameId); });
+    return tail;
+  }
 
   client.on('interactionCreate', async (interaction) => {
     try {
@@ -62,6 +76,7 @@ async function main() {
             return;
           }
           if (record.meta.levelCount < level + 1) {
+            registry.markDead(record.gameId, 'level out of range');
             await interaction.editReply({ content: 'that game only has ' + record.meta.levelCount + (record.meta.levelCount === 1 ? ' level' : ' levels') });
             return;
           }
@@ -82,12 +97,12 @@ async function main() {
         await interaction.deferUpdate();
         try {
           const { record, snapshot } = await registry.press(gameId, action);
-          await interaction.editReply(frame(record, snapshot));
+          await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot)));
         } catch (err) {
           // Keep the existing embed and image; keep buttons while the game is still playable.
           const rec = registry.get(gameId);
           const playable = rec && rec.status === 'playing';
-          await interaction.editReply({ content: userMessage(err), ...(playable ? {} : { components: [] }) });
+          await enqueueEdit(gameId, () => interaction.editReply({ content: userMessage(err), ...(playable ? {} : { components: [] }) }));
         }
       }
     } catch (err) {

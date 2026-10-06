@@ -153,3 +153,24 @@ test('a game with a press in flight is not evicted by another game filling the l
     assert.deepEqual(onDisk.inputs, ['right']);
   } finally { await reg.close(); await pool.close(); }
 });
+
+test('a changed gist source kills the game on next replay', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const reg = createRegistry({ dataDir: dir, pool, getSource });
+  const file = path.join(dir, 'games', 'sp.json');
+  try {
+    await reg.start({ gameId: 'sp', channelId: 'c', gistId: 'sok' });
+    await reg.close();
+    const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.match(rec.sourceHash, /^[0-9a-f]{64}$/);
+    rec.sourceHash = 'deadbeef';
+    fs.writeFileSync(file, JSON.stringify(rec));
+    await pool.drop('sp');
+    const reg2 = createRegistry({ dataDir: dir, pool, getSource });
+    reg2.loadAll();
+    await assert.rejects(reg2.press('sp', 'right'), /source changed/);
+    assert.equal(reg2.get('sp').status, 'dead');
+    await reg2.close();
+  } finally { await pool.close(); }
+});

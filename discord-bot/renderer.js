@@ -8,8 +8,13 @@ const { encodePNG } = require('./png');
 const MAX_SIDE = 800;
 const CELL = 5;
 
+const isTransparent = (c) => String(c).trim().toLowerCase() === 'transparent';
+
 function parseHex(c) {
-  const m = /^#?([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(String(c).trim());
+  let str = String(c).trim();
+  const short = /^#?([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])?$/i.exec(str);
+  if (short) str = '#' + short[1] + short[1] + short[2] + short[2] + short[3] + short[3] + (short[4] ? short[4] + short[4] : '');
+  const m = /^#?([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(str);
   if (!m) return [255, 0, 255, 255];
   const n = parseInt(m[1], 16);
   const a = m[2] !== undefined ? parseInt(m[2], 16) : 255;
@@ -38,10 +43,51 @@ function scaleFor(cellsW, cellsH, cellPx) {
   return Math.max(1, Math.floor(MAX_SIDE / (cellPx * Math.max(cellsW, cellsH))));
 }
 
+function dominantColour(sprite) {
+  const v0 = sprite.dat && sprite.dat[2] ? sprite.dat[2][2] : undefined;
+  if (v0 !== undefined && v0 >= 0 && sprite.colors[v0] !== undefined && !isTransparent(sprite.colors[v0])) return sprite.colors[v0];
+  if (v0 !== undefined && v0 >= 0 && isTransparent(sprite.colors[v0])) return null;
+  for (let row = 0; row < CELL; row++) {
+    const line = sprite.dat && sprite.dat[row];
+    if (!line) continue;
+    for (let col = 0; col < CELL; col++) {
+      const v = line[col];
+      if (v === undefined || v < 0) continue;
+      const colour = sprite.colors[v];
+      if (colour === undefined || isTransparent(colour)) continue;
+      return colour;
+    }
+  }
+  return null;
+}
+
+// Very large viewports: one flat square per cell so the output stays within MAX_SIDE.
+function renderLevelBlocks(s) {
+  const { x: vx, y: vy, w: vw, h: vh } = s.viewport;
+  const block = Math.max(1, Math.floor(MAX_SIDE / Math.max(vw, vh)));
+  const bg = isTransparent(s.background) ? '#000000' : s.background;
+  const img = makeImage(vw * block, vh * block, bg);
+  const cache = {};
+  for (let cx = 0; cx < vw; cx++) {
+    for (let cy = 0; cy < vh; cy++) {
+      const ids = s.cells[(vx + cx) * s.height + (vy + cy)];
+      if (!ids || !ids.length) continue;
+      let top = -Infinity;
+      for (const id of ids) if (id > top && s.sprites[id]) top = id;
+      if (top === -Infinity) continue;
+      if (!(top in cache)) cache[top] = dominantColour(s.sprites[top]);
+      if (cache[top] === null) continue;
+      fillRect(img, cx * block, cy * block, block, block, parseHex(cache[top]));
+    }
+  }
+  return img;
+}
+
 function renderLevelRGBA(s) {
   const { x: vx, y: vy, w: vw, h: vh } = s.viewport;
+  if (Math.max(vw, vh) * CELL > MAX_SIDE) return renderLevelBlocks(s);
   const scale = scaleFor(vw, vh, CELL);
-  const img = makeImage(vw * CELL * scale, vh * CELL * scale, s.background);
+  const img = makeImage(vw * CELL * scale, vh * CELL * scale, isTransparent(s.background) ? '#000000' : s.background);
   const colourCache = {};
   const rgbOf = (hex) => (colourCache[hex] || (colourCache[hex] = parseHex(hex)));
   for (let cx = 0; cx < vw; cx++) {
@@ -58,7 +104,7 @@ function renderLevelRGBA(s) {
             const v = line[col];
             if (v === undefined || v < 0) continue;
             const colour = sprite.colors[v];
-            if (colour === undefined) continue;
+            if (colour === undefined || isTransparent(colour)) continue;
             fillRect(img, (cx * CELL + col) * scale, (cy * CELL + row) * scale, scale, scale, rgbOf(colour));
           }
         }

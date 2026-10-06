@@ -162,7 +162,7 @@ test('host matches the engine test harness on recorded sessions', () => {
       assert.equal(host.levelString(), expected, 'mismatch in test "' + name + '"');
       checked++;
     } catch (e) {
-      if (e instanceof CompileError) continue; // harness compile-error cases are not play sessions
+      if (e instanceof CompileError) continue; // the host refuses games with compile errors; the harness still plays them, so these sessions are skipped here
       throw e;
     } finally { host.dispose(); }
   }

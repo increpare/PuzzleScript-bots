@@ -52,6 +52,7 @@ function createGistStore({ dataDir, token, fetchImpl = globalThis.fetch, now = D
   }
 
   async function getSource(id) {
+    if (!/^[0-9a-f]{4,40}$/i.test(String(id))) throw new GistError('invalid gist id');
     const cached = readCache(id);
     if (cached && now() - cached.fetchedAt < freshMs) return cached.content;
     const fresh = await fetchGist(id, cached ? cached.etag : null);
