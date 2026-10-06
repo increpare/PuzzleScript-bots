@@ -34,6 +34,7 @@ function buildEmbed({ record, snapshot, attachmentName }) {
     .setTitle(String(meta.title || 'PuzzleScript game').slice(0, 256))
     .setFooter({ text: footerText(record, snapshot).slice(0, 2048) });
   if (meta.author) e.setDescription(('by ' + meta.author).slice(0, 1000));
+  if (record.gistId) e.setURL('https://www.puzzlescript.net/play.html?p=' + record.gistId);
   if (attachmentName) e.setImage('attachment://' + attachmentName);
   return e;
 }

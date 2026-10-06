@@ -38,6 +38,18 @@ test('overlong titles are truncated to 256 characters', () => {
   assert.equal(e.title.length, 256);
 });
 
+test('embed title links to game play page when gistId is provided', () => {
+  const record = { meta: meta({}), status: 'playing', gistId: '6841219' };
+  const e = buildEmbed({ record, snapshot: { kind: 'level', levelIndex: 0, levelCount: 3 }, attachmentName: 'f.png' }).toJSON();
+  assert.equal(e.url, 'https://www.puzzlescript.net/play.html?p=6841219');
+});
+
+test('embed has no url when gistId is not provided', () => {
+  const record = { meta: meta({}), status: 'playing' };
+  const e = buildEmbed({ record, snapshot: { kind: 'level', levelIndex: 0, levelCount: 3 }, attachmentName: 'f.png' }).toJSON();
+  assert.equal(e.url, undefined);
+});
+
 test('custom ids parse', () => {
   assert.equal(parseCustomId('ps:up'), 'up');
   assert.equal(parseCustomId('ps:nope'), null);
