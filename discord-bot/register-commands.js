@@ -16,9 +16,12 @@ async function main() {
     .setDescription('Give yourself a PuzzleScript keyword role')
     .addStringOption((o) => o.setName('keyword').setDescription('The keyword to take, or none to drop the one you have').setRequired(true)
       .addChoices(...KEYWORDS.map((k) => ({ name: k, value: k })), { name: NONE, value: NONE }));
+  // Shown to server administrators only while the workshop is being tested. Who else sees it, and
+  // where, can be changed in the server's Integrations settings.
+  const workshop = new SlashCommandBuilder().setName('workshop').setDescription('Open the shared PuzzleScript editor').setDefaultMemberPermissions(0);
   const rest = new REST({ version: '10' }).setToken(cfg.discordToken);
-  await rest.put(Routes.applicationGuildCommands(cfg.appId, cfg.guildId), { body: [play.toJSON(), rank.toJSON(), role.toJSON()] });
-  console.log('registered /play, /rank and /role for guild', cfg.guildId);
+  await rest.put(Routes.applicationGuildCommands(cfg.appId, cfg.guildId), { body: [play.toJSON(), rank.toJSON(), role.toJSON(), workshop.toJSON()] });
+  console.log('registered /play, /rank, /role and /workshop for guild', cfg.guildId);
 
   // Once Activities are enabled, Discord adds a global Entry Point command that launches the
   // Activity for anyone who picks the app in the launcher. Hand it to the bot, which answers with a

@@ -138,9 +138,10 @@ async function main() {
       return;
     }
     try {
-      // The app launcher entry Discord adds once Activities are enabled. In the workshop channel it
-      // opens the shared editor; anywhere else there is nothing for it to open.
-      if (interaction.isPrimaryEntryPointCommand()) {
+      // Two ways to open the workshop: /workshop, and the app launcher entry Discord adds once
+      // Activities are enabled. In the workshop channel they open the shared editor; anywhere else
+      // there is nothing for them to open.
+      if (interaction.isPrimaryEntryPointCommand() || (interaction.isChatInputCommand() && interaction.commandName === 'workshop')) {
         if (workshopHtml && cfg.workshopChannelId && interaction.channelId === cfg.workshopChannelId) {
           await interaction.launchActivity();
           return;
