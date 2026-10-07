@@ -26,6 +26,7 @@
   <li><strong>Games.</strong> For each game: the ids of the message and channel it is in, which game it is, and the moves made in it. The bot does not record who made each move. It does keep the display name of whoever made the most recent move, which is shown under the game as "Last move".</li>
   <li><strong>Levels you send.</strong> A level made with the level editor is kept with your Discord user id and the display name you had when you sent it. The name is shown on the level.</li>
   <li><strong>Levels you solve.</strong> When you solve a level that someone sent, your user id and display name are kept with that level, and the name is shown on it.</li>
+  <li><strong>The workshop.</strong> The game being edited in the shared editor, and its list of saves. These hold the game's text only, with no names or ids.</li>
   <li><strong>Error logs.</strong> Ordinary log entries hold timings and game ids only. When a request to Discord fails, the entry for it can include the ids involved, which may include your user id.</li>
 </ul>
 
@@ -39,7 +40,7 @@
 </ul>
 
 <h2>What other people can see</h2>
-<p>A game, its "Last move" name, a sent level with its author and solvers, and rank announcements are posted in the channel, where everyone in that channel can see them. Replies to <code>/rank</code> and <code>/role</code> are shown only to you.</p>
+<p>A game, its "Last move" name, a sent level with its author and solvers, and rank announcements are posted in the channel, where everyone in that channel can see them. When you press Share in the workshop, the bot posts the game's link in the channel with your name. Whatever you type in the workshop is seen by everyone who has it open. Replies to <code>/rank</code> and <code>/role</code> are shown only to you.</p>
 
 <h2>Where it is kept, and for how long</h2>
 <ul>
@@ -53,7 +54,7 @@
 <h2>Other services</h2>
 <ul>
   <li><strong>Discord.</strong> Everything you do with the bot goes through Discord, under <a href="https://discord.com/privacy">Discord's own privacy policy</a>.</li>
-  <li><strong>GitHub.</strong> Games are fetched from GitHub by their id. Nothing about you is sent to GitHub.</li>
+  <li><strong>GitHub.</strong> Games are fetched from GitHub by their id. Pressing Share in the workshop publishes the game's text there as a public gist, under the bot's own GitHub account. Nothing about you is sent to GitHub.</li>
 </ul>
 
 <h2>Seeing or removing your data</h2>

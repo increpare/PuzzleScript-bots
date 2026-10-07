@@ -39,6 +39,9 @@ function loadConfig(envPath = path.join(__dirname, '.env')) {
     // PuzzleScript-labs one, copied beside the bot when it is deployed.
     workshopChannelId: env.WORKSHOP_CHANNEL_ID || null,
     labsDir: env.LABS_DIR || path.join(path.dirname(envPath), '..', 'labs'),
+    // A GitHub token that may write gists, for the workshop's Share. It should belong to an account
+    // of the bot's own: every gist shared from the workshop is made under it.
+    gistToken: env.GIST_TOKEN || null,
   };
 }
 

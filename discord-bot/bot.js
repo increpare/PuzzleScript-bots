@@ -1,5 +1,5 @@
 'use strict';
-const { Client, GatewayIntentBits, AttachmentBuilder, MessageFlags } = require('discord.js');
+const { Client, GatewayIntentBits, AttachmentBuilder, MessageFlags, escapeMarkdown } = require('discord.js');
 const { loadConfig } = require('./config');
 const { createPool } = require('./pool');
 const { createGistStore, parseGistId } = require('./gists');
@@ -8,13 +8,14 @@ const { renderSnapshot } = require('./renderer');
 const { loadGallery, suggest } = require('./gallery');
 const { createScores } = require('./scores');
 const { createSourceStore } = require('./sources');
-const { buildComponents, buildEmbed, levelFile, parseCustomId, userMessage } = require('./presentation');
+const { buildComponents, buildEmbed, levelFile, parseCustomId, userMessage, workshopDoor, WORKSHOP_BUTTON } = require('./presentation');
 const { planRoleChange, applyRoleChange } = require('./roles');
 const fs = require('node:fs');
 const path = require('node:path');
 const { workshopPage } = require('./workshop-page');
 const { createWorkshopDoc } = require('./workshop-doc');
 const { createWorkshopSaves } = require('./workshop-saves');
+const { createSharer } = require('./workshop-share');
 const { tweakAllowed, createPending } = require('./tweaks');
 const { createOAuth } = require('./discord-oauth');
 const { createHttpServer } = require('./http-server');
@@ -104,6 +105,39 @@ async function main() {
   // What the editor's SAVE button and Load dropdown show there: the room's list, not each browser's.
   const workshopSaves = workshopHtml ? createWorkshopSaves({ dataDir: cfg.dataDir }) : null;
 
+  // Share, in the workshop: the room's game becomes a public gist under the bot's own GitHub
+  // account, and its link is posted in the room. Without a token for that account there is no Share.
+  const sharer = workshopHtml && cfg.gistToken ? createSharer({ token: cfg.gistToken }) : null;
+  async function shareWorkshop(uid) {
+    const made = await sharer.share(uid, workshopDoc.state().doc);
+    if (!made.ok) return made;
+    try {
+      const channel = await client.channels.fetch(cfg.workshopChannelId);
+      // the mention shows who shared it without pinging them (the client allows no mentions)
+      await channel.send({ content: '<@' + uid + '> shared **' + escapeMarkdown(made.title.slice(0, 200)) + '** from the workshop:\n' + made.playUrl + '\nSource: <' + made.editUrl + '>' });
+    } catch (e) {
+      console.error('a shared game could not be posted in the workshop', 'code', e && e.code);
+    }
+    return { ok: true, playUrl: made.playUrl, editUrl: made.editUrl };
+  }
+
+  // The workshop's door: a message in its channel whose button opens the editor. It is posted once
+  // and pinned, and found again by its id after a restart.
+  async function ensureWorkshopDoor() {
+    if (!workshopHtml || !cfg.workshopChannelId) return;
+    const file = path.join(cfg.dataDir, 'workshop', 'door.json');
+    const channel = await client.channels.fetch(cfg.workshopChannelId);
+    let known = null;
+    try { known = JSON.parse(fs.readFileSync(file, 'utf8')).messageId; } catch (e) { /* not posted yet */ }
+    if (known) {
+      const existing = await channel.messages.fetch(known).catch(() => null);
+      if (existing) { await existing.edit(workshopDoor()); return; } // its wording may have changed
+    }
+    const message = await channel.send(workshopDoor());
+    fs.writeFileSync(file, JSON.stringify({ messageId: message.id }));
+    await message.pin().catch((e) => console.log('the workshop door could not be pinned, so pin it by hand: code', e && e.code));
+  }
+
   // The Activity's page. Without the client secret it cannot sign anyone in, so it is not served.
   let httpServer = null;
   if (cfg.clientSecret) {
@@ -112,6 +146,7 @@ async function main() {
       indexHtml: workshopHtml,
       workshop: workshopDoc,
       workshopSaves,
+      workshopShare: sharer ? shareWorkshop : null,
       // for working on the page on one's own machine; never set on the server
       devSession: process.env.WORKSHOP_DEV === '1',
       oauth: createOAuth({ clientId: cfg.appId, clientSecret: cfg.clientSecret }),
@@ -142,10 +177,11 @@ async function main() {
       return;
     }
     try {
-      // Two ways to open the workshop: /workshop, and the app launcher entry Discord adds once
-      // Activities are enabled. In the workshop channel they open the shared editor; anywhere else
-      // there is nothing for them to open.
-      if (interaction.isPrimaryEntryPointCommand() || (interaction.isChatInputCommand() && interaction.commandName === 'workshop')) {
+      // Three ways to open the workshop: the button on its door message, /workshop, and the app
+      // launcher entry Discord adds once Activities are enabled. In the workshop channel they open
+      // the shared editor; anywhere else there is nothing for them to open.
+      if (interaction.isPrimaryEntryPointCommand() || (interaction.isChatInputCommand() && interaction.commandName === 'workshop')
+        || (interaction.isButton() && interaction.customId === WORKSHOP_BUTTON)) {
         if (workshopHtml && cfg.workshopChannelId && interaction.channelId === cfg.workshopChannelId) {
           await interaction.launchActivity();
           return;
@@ -280,7 +316,10 @@ async function main() {
     }
   });
 
-  client.once('ready', () => console.log('logged in as', client.user.tag));
+  client.once('ready', () => {
+    console.log('logged in as', client.user.tag);
+    ensureWorkshopDoor().catch((e) => console.error('the workshop door could not be posted:', 'code', e && e.code, e && e.message));
+  });
   client.on('error', (e) => console.error('client error', e));
   const shutdown = async () => { await registry.close(); await pool.close(); if (workshopDoc) workshopDoc.close(); if (httpServer) await httpServer.close(); client.destroy(); process.exit(0); };
   process.on('SIGTERM', shutdown);

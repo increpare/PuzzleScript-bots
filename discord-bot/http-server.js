@@ -66,9 +66,10 @@ function readJson(req, max = MAX_BODY) {
 //   submit(uid, body) → the outcome of sending a level
 // workshop: the shared document (see workshop-doc.js), when there is a workshop.
 // workshopSaves: the room's save list (see workshop-saves.js).
+// workshopShare(uid): shares the room's game and answers with the outcome, when sharing is set up.
 // devSession: hand a session to anyone who asks, without Discord. This is for working on the page
 //   on one's own machine and must never be on where the server can be reached by others.
-function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, workshop = null, workshopSaves = null, devSession = false, log = console.error }) {
+function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, workshop = null, workshopSaves = null, workshopShare = null, devSession = false, log = console.error }) {
   const roots = staticDirs.map((d) => path.resolve(d));
 
   // The signed-in user's id, from the session the token exchange handed the page; null without one.
@@ -111,8 +112,11 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
       return json(res, 200, { session: signer.sign({ uid: 'dev-' + crypto.randomBytes(4).toString('hex') }, SESSION_MS) });
     }
     if (workshop && (p === '/api/workshop' || p.startsWith('/api/workshop/'))) {
-      if (sessionUser(req) === null) return json(res, 401, { error: 'sign in again' });
-      if (p === '/api/workshop' && req.method === 'GET') return json(res, 200, workshop.state());
+      const uid = sessionUser(req);
+      if (uid === null) return json(res, 401, { error: 'sign in again' });
+      // canShare tells the page whether to offer its Share button
+      if (p === '/api/workshop' && req.method === 'GET') return json(res, 200, Object.assign({ canShare: workshopShare !== null }, workshop.state()));
+      if (workshopShare && p === '/api/workshop/share' && req.method === 'POST') return json(res, 200, await workshopShare(uid));
       if (p === '/api/workshop/push' && req.method === 'POST') {
         const body = await readJson(req, MAX_PUSH_BODY);
         try {

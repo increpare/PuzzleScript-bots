@@ -26,9 +26,35 @@
     return { status: r.status, body: await r.json().catch(() => null) };
   }
 
-  // Sharing to GitHub needs a pop-up and requests that Discord's frame does not allow.
+  // The editor's own Share signs in to GitHub with a pop-up, which Discord's frame does not allow.
+  // It is hidden until the bot says it can share for the room (offerShare).
   const shareLink = document.getElementById('shareClickLink');
   if (shareLink) shareLink.style.display = 'none';
+
+  // Share, done by the bot: the room's game becomes a gist under the bot's own GitHub account, and
+  // the bot posts the link in the channel.
+  function offerShare() {
+    if (!shareLink) return;
+    // a copy of the link without the editor's own handler
+    const link = shareLink.cloneNode(true);
+    link.style.display = '';
+    shareLink.replaceWith(link);
+    let busy = false;
+    link.addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (busy) return;
+      busy = true;
+      say('Workshop: sharing the game…');
+      try {
+        const r = await api('POST', 'workshop/share', {});
+        if (r.status === 200 && r.body && r.body.ok) say('Workshop: shared. The link has been posted in the channel: ' + r.body.playUrl);
+        else say('Workshop: not shared (' + ((r.body && r.body.error) || 'the bot did not answer') + ').');
+      } catch (err) {
+        say('Workshop: not shared (the bot could not be reached).');
+      }
+      busy = false;
+    });
+  }
   // The title links to the PuzzleScript front page, which is not part of the workshop.
   const home = document.querySelector('#uppertoolbar a[href="index.html"]');
   if (home) home.removeAttribute('href');
@@ -205,6 +231,7 @@
     if (saves.status !== 200 || !saves.body) throw new Error('the save list could not be fetched');
     shareSaves(saves.body);
     share(view, first.body);
+    if (first.body.canShare) offerShare();
     say('Workshop: you are editing the shared document. Everyone here sees your changes as you type, and SAVE saves for the whole room.');
   }
 

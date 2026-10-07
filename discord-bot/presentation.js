@@ -122,4 +122,15 @@ function parseCustomId(id) {
   return m && ACTIONS.includes(m[1]) ? m[1] : null;
 }
 
-module.exports = { buildComponents, buildEmbed, levelFile, parseCustomId, userMessage, ACTION_EMOJI };
+// The message that stands in the workshop channel, to be pinned: one press opens the shared editor.
+// Discord never opens an Activity for anyone by itself, so everyone comes in through a button.
+const WORKSHOP_BUTTON = 'ps:workshop';
+function workshopDoor() {
+  return {
+    content: '**PuzzleScript workshop**\nOne PuzzleScript editor that everyone here shares: whatever you type, the others see. Press the button to step in. It needs Discord on a computer.',
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(WORKSHOP_BUTTON).setLabel('Open the workshop').setStyle(ButtonStyle.Primary))],
+  };
+}
+
+module.exports = { buildComponents, buildEmbed, levelFile, parseCustomId, userMessage, workshopDoor, WORKSHOP_BUTTON, ACTION_EMOJI };

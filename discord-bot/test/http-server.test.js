@@ -11,7 +11,7 @@ const { createSigner } = require('../signing');
 
 const DAY = 24 * 60 * 60 * 1000;
 
-async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, workshopSaves, devSession } = {}) {
+async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, workshopSaves, workshopShare, devSession } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-http-'));
   const staticDir = path.join(dir, 'site');
   // a second directory, looked in after the first
@@ -33,6 +33,7 @@ async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, worksh
     indexHtml,
     workshop,
     workshopSaves,
+    workshopShare,
     devSession,
     oauth: oauth || { exchange: async (code) => ({ accessToken: 'tok-' + code, user: { id: '42', name: 'n' } }) },
     signer,
@@ -213,7 +214,8 @@ test('workshop: the document, pushing changes and waiting for them all need a se
   assert.deepEqual(workshop.pulls, []);
 
   const session = signer.sign({ uid: '42' }, DAY);
-  assert.deepEqual(await (await fetch(base + '/api/workshop', { headers: bearer(session) })).json(), { doc: 'title T', version: 3 });
+  assert.deepEqual(await (await fetch(base + '/api/workshop', { headers: bearer(session) })).json(), { canShare: false, doc: 'title T', version: 3 });
+  assert.equal((await jsonPost(base + '/api/workshop/share', session, {})).status, 404); // sharing is not set up
   assert.deepEqual(await (await jsonPost(base + '/api/workshop/push', session, { version: 3, updates: [{ clientID: 'a', changes: [7] }] })).json(), { accepted: true });
   assert.deepEqual(await (await jsonPost(base + '/api/workshop/push', session, { version: 2, updates: [{ clientID: 'a', changes: [7] }] })).json(), { accepted: false });
   assert.deepEqual(workshop.calls[0], ['push', 3, [{ clientID: 'a', changes: [7] }]]);
@@ -312,4 +314,14 @@ test('workshop saves: the list is fetched and added to, and a new save lets wait
   workshop.pulls[0].answer({ updates: [] });
   await pending;
   assert.deepEqual(answered, { savesRev: 5, updates: [] });
+});
+
+test('workshop share: offered when it is set up, and done as the signed-in user', async (t) => {
+  const asked = [];
+  const { base, signer } = await start(t, { workshop: fakeWorkshop(), workshopShare: async (uid) => { asked.push(uid); return { ok: true, playUrl: 'https://www.puzzlescript.net/play.html?p=abc' }; } });
+  assert.equal((await jsonPost(base + '/api/workshop/share', null, {})).status, 401);
+  const session = signer.sign({ uid: '42' }, DAY);
+  assert.equal((await (await fetch(base + '/api/workshop', { headers: bearer(session) })).json()).canShare, true);
+  assert.deepEqual(await (await jsonPost(base + '/api/workshop/share', session, {})).json(), { ok: true, playUrl: 'https://www.puzzlescript.net/play.html?p=abc' });
+  assert.deepEqual(asked, ['42']);
 });

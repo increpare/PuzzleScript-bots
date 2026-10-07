@@ -43,9 +43,11 @@ test('workshop settings: no channel by default, and labs beside the bot', () => 
   fs.writeFileSync(file, base);
   let cfg = loadConfig(file);
   assert.equal(cfg.workshopChannelId, null);
+  assert.equal(cfg.gistToken, null);
   assert.equal(cfg.labsDir, path.join(dir, '..', 'labs'));
-  fs.writeFileSync(file, base + 'WORKSHOP_CHANNEL_ID=555\nLABS_DIR=/somewhere/labs\n');
+  fs.writeFileSync(file, base + 'WORKSHOP_CHANNEL_ID=555\nLABS_DIR=/somewhere/labs\nGIST_TOKEN=gh\n');
   cfg = loadConfig(file);
   assert.equal(cfg.workshopChannelId, '555');
+  assert.equal(cfg.gistToken, 'gh');
   assert.equal(cfg.labsDir, '/somewhere/labs');
 });

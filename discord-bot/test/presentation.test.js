@@ -171,3 +171,16 @@ test('a solved level offers playing again, and the pencil where it is allowed; a
   assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({}), { again: true })), [['ps:left', 'ps:up', 'ps:down', 'ps:right', 'ps:action'], ['ps:undo', 'ps:restart']]);
   assert.equal(parseCustomId('ps:again'), 'again');
 });
+
+// ---- the workshop ----
+const { workshopDoor, WORKSHOP_BUTTON } = require('../presentation');
+
+test('the workshop\'s door is a message with one button, which is not a game button', () => {
+  const door = workshopDoor();
+  assert.match(door.content, /PuzzleScript workshop/);
+  const buttons = door.components.map((r) => r.toJSON().components).flat();
+  assert.equal(buttons.length, 1);
+  assert.equal(buttons[0].custom_id, WORKSHOP_BUTTON);
+  assert.equal(buttons[0].label, 'Open the workshop');
+  assert.equal(parseCustomId(WORKSHOP_BUTTON), null);
+});
