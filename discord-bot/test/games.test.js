@@ -256,3 +256,80 @@ test('start level numbers count real levels only, and out-of-range is refused', 
     assert.equal(pool.has('n2'), false);
   } finally { await reg.close(); await pool.close(); }
 });
+
+const SLIDE_SRC = fs.readFileSync(path.join(__dirname, 'fixtures', 'again-slide.txt'), 'utf8');
+const LOOP_SRC = fs.readFileSync(path.join(__dirname, 'fixtures', 'again-loop.txt'), 'utf8');
+
+// A pool whose next play fails the way a real one does, then behaves normally again.
+function failingOnce(pool, kind) {
+  let armed = false;
+  const wrapped = Object.assign({}, pool, {
+    async play(id, action, opts) {
+      if (!armed) return pool.play(id, action, opts);
+      armed = false;
+      if (kind === 'MoveTooLongError') await pool._call(id, 'drop', {}, 1000); // the worker discards the half-played game but stays up
+      else await pool.drop(id);                                                 // the worker was stopped, and the pool forgot the game
+      throw Object.assign(new Error(kind), { name: kind });
+    },
+  });
+  return { pool: wrapped, failNext: () => { armed = true; } };
+}
+
+for (const kind of ['MoveTooLongError', 'TimeoutError']) {
+  test('a move refused with ' + kind + ' is not recorded, and the game carries on from where it was', async () => {
+    const dir = tmp();
+    const real = createPool({ size: 1 });
+    const { pool, failNext } = failingOnce(real, kind);
+    const reg = createRegistry({ dataDir: dir, pool, getSource });
+    try {
+      await reg.start({ gameId: 'r', channelId: 'c', gistId: 'sok' });
+      const before = (await reg.press('r', 'right')).snapshot;
+      failNext();
+      await assert.rejects(reg.press('r', 'up'), (e) => e.name === kind);
+      const rec = reg.get('r');
+      assert.equal(rec.status, 'playing');
+      assert.deepEqual(rec.inputs, ['right']);
+      const undone = await reg.press('r', 'undo');
+      assert.equal(undone.applied, true);
+      assert.deepEqual(undone.record.inputs, ['right', 'undo']);
+      const again = await reg.press('r', 'right');
+      assert.deepEqual(again.snapshot.cells, before.cells, 'rebuilt from the log, so the same move gives the same board');
+    } finally { await reg.close(); await real.close(); }
+  });
+}
+
+test('press returns an animation for a move that ran on, and none for a single turn', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const reg = createRegistry({ dataDir: dir, pool, getSource: async () => SLIDE_SRC });
+  try {
+    await reg.start({ gameId: 'an', channelId: 'c', gistId: 'abcd' });
+    const slid = await reg.press('an', 'right');
+    assert.equal(Buffer.from(slid.gif).toString('latin1', 0, 6), 'GIF89a');
+    const plain = await reg.press('an', 'left');
+    assert.equal(plain.gif, null);
+  } finally { await reg.close(); await pool.close(); }
+});
+
+test('a game left in a looping animation is rebuilt into the same state', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  let reg = createRegistry({ dataDir: dir, pool, getSource: async () => LOOP_SRC });
+  await reg.start({ gameId: 'lp', channelId: 'c', gistId: 'abcd' });
+  await reg.press('lp', 'right');
+  const boom = await reg.press('lp', 'right');
+  assert.equal(boom.snapshot.animating, 'loop');
+  const ignored = await reg.press('lp', 'left');
+  assert.equal(ignored.applied, false);
+  assert.deepEqual(reg.get('lp').inputs, ['right', 'right'], 'an ignored move is not recorded');
+  await reg.close();
+  await pool.drop('lp');
+  reg = createRegistry({ dataDir: dir, pool, getSource: async () => LOOP_SRC });
+  try {
+    reg.loadAll();
+    const still = await reg.press('lp', 'left');
+    assert.deepEqual([still.applied, still.snapshot.animating], [false, 'loop']);
+    const undone = await reg.press('lp', 'undo');
+    assert.deepEqual([undone.applied, undone.snapshot.animating], [true, null]);
+  } finally { await reg.close(); await pool.close(); }
+});

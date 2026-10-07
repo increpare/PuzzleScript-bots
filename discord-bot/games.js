@@ -168,9 +168,8 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
         }
         try {
           await ensureLive(rec);
-          const applied = await pool.input(gameId, action);
+          const { applied, snapshot, gif } = await pool.play(gameId, action, { animate: true });
           if (applied) { rec.inputs.push(action); if (by) rec.lastMover = String(by).slice(0, 80); }
-          const snapshot = await pool.snapshot(gameId);
           // A level is solved when a move (not continue/undo/restart) takes play from a level to a later one.
           const prev = rec.cur;
           const isMove = applied && !['continue', 'undo', 'restart'].includes(action);
@@ -179,12 +178,15 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
           rec.cur = { kind: snapshot.kind, levelIndex: snapshot.levelIndex };
           if (snapshot.kind === 'finished') rec.status = 'finished';
           if (applied || snapshot.kind === 'finished') persist(rec);
-          return { record: rec, snapshot, applied, solvedLevel };
+          return { record: rec, snapshot, applied, solvedLevel, gif: gif || null };
         } catch (e) {
-          // EvictedError (bystander of another game's timeout) and other transient failures: not dead
-          if (e.name === 'TimeoutError' || e.name === 'EngineError' || e.name === 'CompileError' || e.name === 'ResourceError') markDead(rec, e);
+          if (e.name === 'EngineError' || e.name === 'CompileError' || e.name === 'ResourceError') markDead(rec, e);
+          // EvictedError (bystander of another game's timeout) and other transient failures leave the game as it is
           else if (!['EvictedError', 'PoolClosedError', 'RegistryClosedError', 'NoGameError', 'GistError'].includes(e.name)) {
-            // unknown failure: the host may have diverged from the input log; rebuild on next press
+            // A move that took too long (MoveTooLongError, or TimeoutError when the worker had to be
+            // stopped) is refused, not fatal: it was never added to the input log. Like any unknown
+            // failure it may have left the live game part-way through a move, so that copy is thrown
+            // away and the next press rebuilds the game from the log.
             await pool.drop(gameId).catch(() => {});
             forgetLive(gameId);
           }
