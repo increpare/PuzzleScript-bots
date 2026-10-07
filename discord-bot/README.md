@@ -36,9 +36,27 @@ Typing `/play` suggests games from the puzzlescript.net gallery; any gist id or 
 - Logs: `journalctl --user -u puzzlescript-bot -f`
 - Games persist under `discord-bot/data/games/`, gist cache under `data/gists/`.
   Games never expire by age. Per-game records (seed and input history) are capped at 1 MB in total and game data at 100 MB (`data/sources/` holds every game's source once, by hash, up to 99 MB; `data/gists/` is a small index of gist id to source, up to 1 MB); over a cap, finished games go first, then the least recently played. A game keeps its original source, so editing a gist does not affect games already started unless that source has been evicted.
-- 
 - Every frame is 400×300 px (matches Discord's embed placeholder size so the panel never resizes).
-- Limits: 1 MB source, 10 s compile, 3 s per input, 30 live games.
+- Limits: 1 MB source, 10 s compile, 3 s for any single turn of the engine, 20 s for a move's whole chain of `again` turns, 30 live games.
+
+## Again chains and animation
+
+A move that sets off `again` turns is shown as one animated GIF, a frame per turn at the game's
+`again_interval`. A chain that ends plays once and rests on the final state (its first frame is the
+final state for one blink, so a client that shows GIFs as stills still shows the right board).
+
+- **Loops.** Some games animate for ever on purpose (an explosion that keeps flickering after you
+  lose). The chain is stopped as soon as a state repeats, the GIF loops, and only undo and restart
+  are offered, because the engine ignores moves while an `again` chain is running.
+- **Very long chains** pause after 1000 turns with a continue button. Chains of more than 300
+  distinct frames are shown as a still.
+- **Too slow.** A move whose chain takes more than 20 s is refused and not recorded; the game
+  carries on from where it was. A single turn that takes more than 3 s stops the worker, which is
+  also only a refused move. Rebuilding a game from its input log allows each input three times the
+  live budget.
+
+Loop and pause points depend only on the game and its inputs, never on timing, so a game rebuilt
+from its input log lands in the same place.
 
 ## Scores
 

@@ -67,3 +67,35 @@ test('footer uses level numbers that leave out message screens', () => {
   const e = buildEmbed({ record, snapshot: { kind: 'level', levelIndex: 28, levelCount: 35, levelNumber: 15, realLevelCount: 18 }, attachmentName: 'f.png' }).toJSON();
   assert.equal(e.footer.text, 'Level 15 of 18');
 });
+
+test('while an animation loops, only undo and restart are offered', () => {
+  const rows = buildComponents({ kind: 'level', animating: 'loop' }, meta({}));
+  assert.deepEqual(ids(rows), [['ps:undo', 'ps:restart']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'level', animating: 'loop' }, meta({ noundo: true }))), [['ps:restart']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'level', animating: 'loop' }, meta({ noundo: true, norestart: true }))), []);
+});
+
+test('a paused long animation can be continued, undone or restarted', () => {
+  const rows = buildComponents({ kind: 'level', animating: 'more' }, meta({}));
+  assert.deepEqual(ids(rows), [['ps:continue', 'ps:undo', 'ps:restart']]);
+});
+
+test('the footer says why the move buttons are gone', () => {
+  const record = { meta: meta({}), status: 'playing', lastMover: 'increpare' };
+  const footer = (animating) => buildEmbed({ record, snapshot: { kind: 'level', levelNumber: 1, realLevelCount: 3, animating }, attachmentName: 'f.gif' }).toJSON().footer.text;
+  assert.equal(footer(null), 'Level 1 of 3 (Last move: increpare)');
+  assert.equal(footer('loop'), 'Level 1 of 3 (Last move: increpare) · looping: undo or restart');
+  assert.equal(footer('more'), 'Level 1 of 3 (Last move: increpare) · still animating: continue, undo or restart');
+});
+
+test('errors are worded for the player, and a move that took too long reads as refused', () => {
+  const { userMessage } = require('../presentation');
+  const named = (name, message) => Object.assign(new Error(message || name), { name });
+  assert.equal(userMessage(named('MoveTooLongError')), 'that move took too long, so it was not made');
+  assert.equal(userMessage(named('TimeoutError')), 'that move took too long, so it was not made');
+  assert.equal(userMessage(named('TimeoutError'), 'start'), 'that game took too long to start');
+  assert.equal(userMessage(named('CompileError', 'no player')), 'that game does not compile: no player');
+  assert.equal(userMessage(named('EvictedError')), 'the game was paused by the server, press again');
+  assert.equal(userMessage(named('LevelRangeError', 'that game only has 3 levels')), 'that game only has 3 levels');
+  assert.equal(userMessage(named('CompileError', 'x'.repeat(5000))).length, 1900);
+});

@@ -2,42 +2,25 @@
 const { Client, GatewayIntentBits, AttachmentBuilder, MessageFlags } = require('discord.js');
 const { loadConfig } = require('./config');
 const { createPool } = require('./pool');
-const { createGistStore, parseGistId, GistError } = require('./gists');
+const { createGistStore, parseGistId } = require('./gists');
 const { createRegistry } = require('./games');
 const { renderSnapshot } = require('./renderer');
 const { loadGallery, suggest } = require('./gallery');
 const { createScores } = require('./scores');
 const { createSourceStore } = require('./sources');
-const { buildComponents, buildEmbed, parseCustomId } = require('./presentation');
+const { buildComponents, buildEmbed, parseCustomId, userMessage } = require('./presentation');
 
 
-function frame(record, snapshot) {
-  const { png } = renderSnapshot(snapshot);
-  const name = 'frame.png';
+// gif: the animation of the move that led here, when there is one; otherwise a still is drawn.
+function frame(record, snapshot, gif) {
+  const name = gif ? 'frame.gif' : 'frame.png';
+  const data = gif ? Buffer.from(gif) : renderSnapshot(snapshot).png;
   return {
     content: '',
     embeds: [buildEmbed({ record, snapshot, attachmentName: name })],
-    files: [new AttachmentBuilder(png, { name })],
+    files: [new AttachmentBuilder(data, { name })],
     components: record.status === 'playing' ? buildComponents(snapshot, record.meta) : [],
   };
-}
-
-function userMessageRaw(err) {
-  if (err instanceof GistError) return err.message;
-  const name = err && err.name;
-  if (name === 'LevelRangeError') return err.message;
-  if (name === 'NoGameError') return 'this game is no longer available';
-  if (name === 'CompileError') return 'that game does not compile: ' + err.message;
-  if (name === 'TimeoutError') return 'that game took too long and was stopped';
-  if (name === 'EngineError') return 'the game stopped: ' + err.message;
-  if (name === 'EvictedError') return 'the game was paused by the server, press again';
-  if (name === 'RegistryClosedError' || name === 'PoolClosedError') return 'the bot is restarting, try again in a moment';
-  console.error(err);
-  return 'something went wrong';
-}
-
-function userMessage(err) {
-  return String(userMessageRaw(err)).slice(0, 1900);
 }
 
 async function main() {
@@ -96,7 +79,7 @@ async function main() {
           await interaction.editReply(frame(record, snapshot));
           console.log('play edited', Date.now() - t0, 'ms');
         } catch (err) {
-          await interaction.editReply({ content: userMessage(err) });
+          await interaction.editReply({ content: userMessage(err, 'start') });
         }
         return;
       }
@@ -120,9 +103,9 @@ async function main() {
         await interaction.deferUpdate();
         console.log('ack', Date.now() - t0, 'ms');
         try {
-          const { record, snapshot, applied, solvedLevel } = await registry.press(gameId, action, (interaction.member && interaction.member.displayName) || interaction.user.globalName || interaction.user.username);
-          console.log('applied', applied, Date.now() - t0, 'ms');
-          await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot)));
+          const { record, snapshot, applied, solvedLevel, gif } = await registry.press(gameId, action, (interaction.member && interaction.member.displayName) || interaction.user.globalName || interaction.user.username);
+          console.log('applied', applied, gif ? 'gif ' + gif.length + ' bytes' : 'still', Date.now() - t0, 'ms');
+          await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot, gif)));
           console.log('edited', Date.now() - t0, 'ms');
           if (solvedLevel !== null && solvedLevel !== undefined) {
             const s = scores.credit(interaction.user.id, record.gistId, solvedLevel);

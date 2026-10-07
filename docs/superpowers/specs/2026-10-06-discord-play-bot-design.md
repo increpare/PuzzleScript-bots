@@ -45,8 +45,11 @@ API, all synchronous:
   metadata: `{title, author, levels, flags: {noaction, noundo, norestart,
   realtime}}`.
 - `host.input(dir)` with `dir` in `0..4` (up, left, down, right, action).
-  Calls `processInput(dir)` then drains `again` exactly as the test harness
-  does: `while (againing) { againing = false; processInput(-1); }`.
+  Calls `processInput(dir)` then drains `again` as the test harness does
+  (`while (againing) { againing = false; processInput(-1); }`), with three
+  additions described under "Again chains" below: the drain stops when a
+  state repeats, pauses at a step cap, and is refused when it runs out of
+  time.
 - `host.undo()` → `DoUndo(false, true)`, `host.restart()` → `DoRestart()`.
 - `host.continue()` → on a message screen, advances past it (same as pressing
   action in the engine: `processInput(4)` or `nextLevel()` as appropriate).
@@ -98,10 +101,17 @@ The host never touches Discord. It is unit-tested on its own.
 ### `worker.js` — isolation and time limits
 
 - A pool of 2 `worker_threads`, each owning engine hosts for many games.
-- Every host call runs with a deadline: compile 10 s, input 3 s. The main
-  thread enforces it with a timer; on overrun the worker is terminated, every
-  game it held is marked `dead`, and a fresh worker is started. Rebuild on
-  next press happens by replay in a healthy worker.
+- Compile has a 10 s deadline. Every other call may go at most 3 s without
+  finishing a turn of the engine: the worker reports progress after each
+  turn, and the main thread restarts its timer on each report. A worker that
+  stays silent is terminated, the call in flight is rejected with
+  `TimeoutError`, the other games it held are rebuilt by replay on their next
+  press, and a fresh worker is started.
+- A move's whole chain of `again` turns has a 20 s budget, checked by the
+  host between turns (`MoveTooLongError`). The worker survives; only that
+  game's half-played copy is discarded.
+- Neither error ends the game: the move was never added to the input log, so
+  the next press rebuilds the game from the log and carries on.
 - Hosts live in `vm` contexts inside the worker, one per game, so engine
   globals never collide.
 
@@ -134,10 +144,43 @@ The host never touches Discord. It is unit-tested on its own.
 |---|---|
 | Source size | 1 MB |
 | Compile budget | 10 s |
-| Input budget | 3 s |
+| One turn of the engine | 3 s |
+| One move's whole `again` chain | 20 s (60 s when replaying the input log) |
+| `again` turns before a chain is paused | 1000 |
+| Frames in one animation | 300 distinct, 16 MB captured, 4 MB encoded |
 | Live games | 30 |
 | Record retention | 14 days idle |
 | Image size | 400×300 px |
+
+## Again chains (added 2026-10-07)
+
+A move can set off a chain of `again` turns. Three things can end the drain
+besides the chain finishing, and only the third depends on timing:
+
+1. **A state repeats.** The level, pending movements, level index and random
+   generator state are hashed after each turn. A repeat means the chain would
+   never end (an intentional looping animation, such as an explosion shown
+   after losing). The drain stops there with the engine still wanting another
+   turn; the snapshot reports `animating: 'loop'`.
+2. **The step cap** (1000 turns). The drain pauses; the snapshot reports
+   `animating: 'more'` and `continue` carries it on.
+3. **The time budget.** The move is refused (see `worker.js`).
+
+While a chain is still wanted (`animating` set), moves and action are ignored,
+as the engine itself ignores them while `againing`; undo and restart work, and
+the buttons offered are reduced to match. Because the first two stops depend
+only on the game and its inputs, a game rebuilt from its log stops in the same
+place.
+
+**Animation.** For a live press the host keeps one frame per turn (a copy of
+the level's object array; consecutive identical frames are merged). The worker
+turns them into a GIF with one shared palette, each frame covering only the
+pixels that changed, at the game's `again_interval` (150 ms by default, never
+under 20 ms). A chain that ended plays once: the first frame is the final
+state for one blink, so that a client showing a GIF as a still shows the right
+board, then the turns, resting on the final state. A loop plays for ever. If
+there are too many frames or colours, or encoding runs long, the still PNG is
+sent instead.
 
 ## Configuration
 

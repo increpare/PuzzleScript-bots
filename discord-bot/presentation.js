@@ -1,5 +1,6 @@
 'use strict';
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
+const { GistError } = require('./gists');
 
 const ACTIONS = ['up', 'left', 'down', 'right', 'action', 'undo', 'restart', 'continue'];
 const ACTION_EMOJI = { left: '⬅️', up: '⬆️', down: '⬇️', right: '➡️', action: '✖️', undo: '↩️', restart: '🔄', continue: '▶️' };
@@ -12,6 +13,15 @@ function buildComponents(snapshot, meta) {
   if (snapshot.kind === 'message') return [new ActionRowBuilder().addComponents(button('continue', ButtonStyle.Primary))];
   if (snapshot.kind !== 'level') return [];
   const flags = (meta && meta.flags) || {};
+  if (snapshot.animating) {
+    // An again chain is still running, and the engine ignores moves until it is undone or restarted
+    // (or, for one that was only paused, carried on).
+    const row = [];
+    if (snapshot.animating === 'more') row.push(button('continue', ButtonStyle.Primary));
+    if (!flags.noundo) row.push(button('undo'));
+    if (!flags.norestart) row.push(button('restart'));
+    return row.length ? [new ActionRowBuilder().addComponents(...row)] : [];
+  }
   const row1 = [button('left'), button('up'), button('down'), button('right')];
   if (!flags.noaction) row1.push(button('action', ButtonStyle.Primary));
   const row2 = [];
@@ -29,7 +39,10 @@ function footerText(record, snapshot) {
   const n = snapshot.levelNumber !== undefined ? snapshot.levelNumber : (snapshot.levelIndex | 0) + 1;
   const m = snapshot.realLevelCount !== undefined ? snapshot.realLevelCount : snapshot.levelCount;
   const level = 'Level ' + n + ' of ' + m;
-  return record.lastMover ? level + ' (Last move: ' + record.lastMover + ')' : level;
+  const text = record.lastMover ? level + ' (Last move: ' + record.lastMover + ')' : level;
+  if (snapshot.animating === 'loop') return text + ' · looping: undo or restart';
+  if (snapshot.animating === 'more') return text + ' · still animating: continue, undo or restart';
+  return text;
 }
 
 function buildEmbed({ record, snapshot, attachmentName }) {
@@ -43,9 +56,31 @@ function buildEmbed({ record, snapshot, attachmentName }) {
   return e;
 }
 
+// What to tell the player when something fails. context is 'start' while a game is being started.
+function userMessageRaw(err, context) {
+  if (err instanceof GistError) return err.message;
+  const name = err && err.name;
+  if (name === 'LevelRangeError') return err.message;
+  if (name === 'NoGameError') return 'this game is no longer available';
+  if (name === 'CompileError') return 'that game does not compile: ' + err.message;
+  if (name === 'MoveTooLongError' || name === 'TimeoutError') {
+    return context === 'start' ? 'that game took too long to start' : 'that move took too long, so it was not made';
+  }
+  if (name === 'EngineError') return 'the game stopped: ' + err.message;
+  if (name === 'ResourceError') return 'the game used too much memory and was stopped';
+  if (name === 'EvictedError') return 'the game was paused by the server, press again';
+  if (name === 'RegistryClosedError' || name === 'PoolClosedError') return 'the bot is restarting, try again in a moment';
+  console.error(err);
+  return 'something went wrong';
+}
+
+function userMessage(err, context) {
+  return String(userMessageRaw(err, context)).slice(0, 1900);
+}
+
 function parseCustomId(id) {
   const m = /^ps:([a-z]+)$/.exec(String(id || ''));
   return m && ACTIONS.includes(m[1]) ? m[1] : null;
 }
 
-module.exports = { buildComponents, buildEmbed, parseCustomId, ACTION_EMOJI };
+module.exports = { buildComponents, buildEmbed, parseCustomId, userMessage, ACTION_EMOJI };
