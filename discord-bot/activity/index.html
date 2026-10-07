@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PuzzleScript level editor</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; color: #eee; font: 14px/1.4 system-ui, sans-serif; }
+  #wrap { display: flex; flex-direction: column; height: 100%; }
+  #bar { padding: 8px 8px 0; }
+  #pad { flex: 1; min-height: 120px; margin: 8px; border: 1px solid #666; touch-action: none; outline: none; }
+  #pad:focus { border-color: #9cf; }
+  #log { height: 45%; overflow: auto; margin: 0 8px 8px; padding: 6px; background: #000; white-space: pre-wrap; font: 12px/1.35 ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="bar">Level editor test page. Click, right-click, drag, tap and type in the box.</div>
+  <div id="pad" tabindex="0"></div>
+  <div id="log"></div>
+</div>
+<script src="vendor/embedded-app-sdk.js"></script>
+<script src="spike.js"></script>
+</body>
+</html>
