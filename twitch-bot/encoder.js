@@ -3,7 +3,7 @@ const { spawn } = require('node:child_process');
 const { StringDecoder } = require('node:string_decoder');
 
 const RATE = 44100, TICK_MS = 20, LEAD_MS = 150, MIN_GAP_MS = 50, STALL_MS = 10000;
-const FIRST_BACKOFF = 2000, MAX_BACKOFF = 60000, HEALTHY_MS = 60000, KILL_AFTER_MS = 3000, MAX_PARTIAL_LINE = 4096;
+const FIRST_BACKOFF = 2000, MAX_BACKOFF = 60000, HEALTHY_MS = 60000, KILL_AFTER_MS = 3000, MAX_PARTIAL_LINE = 4096, CLOCK_STEP_MS = 1000;
 
 // Measured on the Pi: an unchanged frame costs as much to encode as a changed one, so the saving
 // is in sending few frames; one x264 thread is cheaper than the default at these frame rates.
@@ -34,7 +34,10 @@ const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 // Owns the ffmpeg process and is the stream's only clock. Video frames are stamped by ffmpeg as
 // they arrive, so one is written only when the picture changes, plus a heartbeat. Audio is written
 // by sample count: exactly as many samples as real time has advanced, so the two never drift apart.
-function createEncoder({ output, secrets = [], minFps = 1, readAudio = () => Buffer.alloc(0), spawnFfmpeg = defaultSpawn, now = monotonicMs, log = console.log, setTimer = setTimeout, clearTimer = clearTimeout, autoTick = true }) {
+// ffmpeg stamps video from the system clock and audio is counted from the monotonic one, so if the
+// system clock is stepped (a time sync after a power cut, say) the picture stays out of step with
+// the sound until ffmpeg is restarted, which is what happens.
+function createEncoder({ output, secrets = [], minFps = 1, readAudio = () => Buffer.alloc(0), spawnFfmpeg = defaultSpawn, now = monotonicMs, wallNow = Date.now, log = console.log, setTimer = setTimeout, clearTimer = clearTimeout, autoTick = true }) {
   const fps = Math.max(1, minFps); // the heartbeat and the keyframe interval both follow this, so they cannot disagree
   const beatMs = 1000 / fps;
   // The stream key is on ffmpeg's command line, so it can turn up in what ffmpeg prints: as the whole
@@ -45,6 +48,7 @@ function createEncoder({ output, secrets = [], minFps = 1, readAudio = () => Buf
   let frame = null, dirty = false;
   let proc = null, t0 = 0, sentSamples = 0, lastWrite = -Infinity, nextBeat = 0;
   let videoBlocked = false, audioBlocked = false, blockedSince = 0;
+  let wallOffset = 0, killed = false; // killed: this process has been sent SIGKILL, and is only waited for now
   let backoff = FIRST_BACKOFF, restartTimer = null, interval = null, stopped = true;
 
   function launch() {
@@ -52,6 +56,7 @@ function createEncoder({ output, secrets = [], minFps = 1, readAudio = () => Buf
     if (stopped) return;
     t0 = now(); sentSamples = 0; lastWrite = -Infinity; nextBeat = 0;
     videoBlocked = false; audioBlocked = false;
+    wallOffset = wallNow() - t0; killed = false;
     dirty = true;
     let p = null, done = false;
     // ffmpeg's stderr arrives in chunks that end anywhere, so it is logged a line at a time: the text
@@ -102,11 +107,19 @@ function createEncoder({ output, secrets = [], minFps = 1, readAudio = () => Buf
 
   function tick() {
     const p = proc;
-    if (!p) return;
+    if (!p || killed) return;
     const t = now() - t0;
 
+    // Both kills restart ffmpeg through its exit, which starts both clocks again.
+    if (Math.abs((wallNow() - now()) - wallOffset) > CLOCK_STEP_MS) {
+      killed = true;
+      log('the system clock stepped, restarting ffmpeg');
+      p.kill('SIGKILL');
+      return;
+    }
+
     if (audioBlocked) {
-      if (now() - blockedSince >= STALL_MS) { log('ffmpeg is not reading, restarting it'); p.kill('SIGKILL'); return; }
+      if (now() - blockedSince >= STALL_MS) { killed = true; log('ffmpeg is not reading, restarting it'); p.kill('SIGKILL'); return; }
     } else {
       const owed = Math.floor((t + LEAD_MS) * RATE / 1000) - sentSamples;
       if (owed > 0) {

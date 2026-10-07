@@ -15,7 +15,7 @@ function pipe() {
 }
 
 function harness(opts = {}) {
-  const clock = { t: 5000 }, procs = [], timers = [], logs = [], plan = [];
+  const clock = { t: 5000, wall: 1.7e12 }, procs = [], timers = [], logs = [], plan = []; // wall: how far the system clock is ahead of the monotonic one
   const spawnFfmpeg = (output) => {
     if (plan.length) return plan.shift()(output); // a test queues a function to override the next launch
     const p = new EventEmitter();
@@ -28,7 +28,7 @@ function harness(opts = {}) {
     return p;
   };
   const enc = createEncoder(Object.assign({
-    output: 'rtmp://live.twitch.tv/app/SECRETKEY', spawnFfmpeg, now: () => clock.t, log: (m) => logs.push(String(m)), autoTick: false,
+    output: 'rtmp://live.twitch.tv/app/SECRETKEY', spawnFfmpeg, now: () => clock.t, wallNow: () => clock.wall + clock.t, log: (m) => logs.push(String(m)), autoTick: false,
     setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer: () => {},
   }, opts));
   const at = (ms) => { clock.t = 5000 + ms; enc._tick(); };
@@ -86,7 +86,7 @@ test('a minFps below 1 is raised to 1, so the heartbeat and the keyframe interva
     procs.push(p);
     return p;
   };
-  const enc = createEncoder({ output: 'x', minFps: 0.5, spawnFfmpeg, now: () => clock, log: () => {}, autoTick: false });
+  const enc = createEncoder({ output: 'x', minFps: 0.5, spawnFfmpeg, now: () => clock, wallNow: () => clock, log: () => {}, autoTick: false });
   enc.setFrame(FRAME_A);
   enc.start();
   const at = (ms) => { clock = 5000 + ms; enc._tick(); };
@@ -226,6 +226,84 @@ test('an audio pipe stuck for 10 seconds gets ffmpeg killed', () => {
   assert.equal(h.procs[0].killed, undefined);
   h.at(10000);
   assert.equal(h.procs[0].killed, 'SIGKILL');
+});
+
+const STEPPED = 'the system clock stepped, restarting ffmpeg';
+const stepLogs = (h) => h.logs.filter((l) => l.includes(STEPPED)).length;
+const watchKills = (p) => { const kills = []; p.kill = (signal) => { kills.push(signal); }; return kills; };
+
+test('a step of the system clock, forwards or back, kills ffmpeg once', () => {
+  for (const step of [5000, -5000]) {
+    const h = harness();
+    h.enc.setFrame(FRAME_A);
+    h.enc.start();
+    const kills = watchKills(h.procs[0]);
+    h.at(0); h.at(20); h.at(1000); h.at(2000);
+    assert.deepEqual(kills, [], 'the two clocks advancing together');
+    h.clock.wall += step;
+    h.at(2020); h.at(2040); h.at(3000); h.at(9000);
+    assert.deepEqual(kills, ['SIGKILL'], 'step ' + step);
+    assert.equal(stepLogs(h), 1, 'step ' + step);
+  }
+});
+
+test('a difference of up to a second between the two clocks is tolerated', () => {
+  const h = harness();
+  h.enc.setFrame(FRAME_A);
+  h.enc.start();
+  const kills = watchKills(h.procs[0]);
+  for (let ms = 0; ms <= 120000; ms += 20) h.at(ms); // two minutes with the clocks advancing together
+  h.clock.wall += 1000;
+  h.at(120020);
+  h.clock.wall -= 2000;
+  h.at(120040);
+  assert.deepEqual(kills, [], 'exactly a second either way is within tolerance');
+  assert.equal(stepLogs(h), 0);
+  h.clock.wall -= 1;
+  h.at(120060);
+  assert.deepEqual(kills, ['SIGKILL'], 'more than a second is not');
+});
+
+test('after a clock-step restart the new offset is the baseline, and the next process can be killed too', () => {
+  const h = harness();
+  h.enc.setFrame(FRAME_A);
+  h.enc.start();
+  const first = watchKills(h.procs[0]);
+  h.at(0);
+  h.clock.wall += 5000;
+  h.at(20); h.at(40);
+  assert.deepEqual(first, ['SIGKILL']);
+  h.procs[0].emit('exit', null, 'SIGKILL');
+  assert.equal(h.timers.length, 1, 'the usual restart');
+  assert.ok(h.logs.some((l) => l.startsWith('ffmpeg stopped (SIGKILL)')));
+  h.clock.t += 2000;
+  h.timers[0].fn();
+  assert.equal(h.procs.length, 2);
+  const second = watchKills(h.procs[1]);
+  h.enc._tick();
+  h.at(2100); h.at(2120); h.at(5000);
+  assert.deepEqual(second, [], 'the clocks already differ by the new amount');
+  assert.equal(h.procs[1].stdio[3].bytes() > 0, true, 'audio flows again');
+  assert.deepEqual(first, ['SIGKILL'], 'the old process is not touched again');
+  h.clock.wall -= 3000;
+  h.at(5020); h.at(5040);
+  assert.deepEqual(second, ['SIGKILL'], 'a second step is caught too');
+  assert.equal(stepLogs(h), 2);
+});
+
+test('a stalled audio pipe is killed and logged once, however many ticks follow', () => {
+  const h = harness();
+  h.enc.start();
+  const kills = watchKills(h.procs[0]);
+  h.procs[0].stdio[3].accept = false;
+  h.at(0);
+  h.at(10000); h.at(10020); h.at(10040); h.at(20000);
+  assert.deepEqual(kills, ['SIGKILL']);
+  assert.equal(h.logs.filter((l) => l.includes('ffmpeg is not reading')).length, 1);
+  h.clock.wall += 5000;
+  h.at(20020);
+  assert.deepEqual(kills, ['SIGKILL'], 'a process that is already being killed is not killed for a second reason');
+  assert.equal(stepLogs(h), 0);
 });
 
 test('ffmpeg is restarted with a doubling delay, and the clocks start again', () => {
