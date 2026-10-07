@@ -17,7 +17,8 @@ test('plays every game once before any repeats', () => {
   const r = createRotation({ gallery: GALLERY, dataDir: tmp() });
   const seen = [r.current().gistId, r.advance().gistId, r.advance().gistId];
   assert.deepEqual(seen.slice().sort(), ['aaa1', 'bbb2', 'ccc3']);
-  assert.ok(GALLERY.some((g) => g.gistId === r.advance().gistId));
+  const next = r.advance().gistId;
+  assert.ok(GALLERY.some((g) => g.gistId === next));
 });
 
 test('current is stable until advance', () => {
