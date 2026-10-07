@@ -395,3 +395,121 @@ test('a game the pool has lost track of is rebuilt on the next press', async () 
     assert.deepEqual([r.applied, r.record.inputs], [true, ['right', 'right']]);
   } finally { await reg.close(); await real.close(); }
 });
+
+// ---- games on a stored level ----
+const crypto = require('node:crypto');
+const { createLevelStore, levelId } = require('../levels');
+
+const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
+// Sokoban Basic's glyphs. Two moves right solve it: the first walks, the second pushes the crate home.
+const TWO_STEPS = '######\n#p.*o#\n######';
+function storedLevel(dir, text = TWO_STEPS) {
+  const levels = createLevelStore({ dataDir: dir });
+  const level = levels.add({ id: levelId('sok', text), gistId: 'sok', baseSourceHash: sha(SOKOBAN), text, authorId: '1', authorName: 'Ada' });
+  return { levels, level };
+}
+
+test('a game on a stored level is that one level, and solving it finishes the game', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const { levels, level } = storedLevel(dir);
+  const reg = createRegistry({ dataDir: dir, pool, getSource, levels });
+  try {
+    const { record, snapshot } = await reg.start({ gameId: 'L1', channelId: 'c', gistId: 'sok', level, startLevelNumber: 3 });
+    assert.equal(record.levelId, level.id);
+    assert.equal(record.gistId, 'sok');
+    assert.equal(record.meta.levelCount, 1);
+    assert.equal(snapshot.kind, 'level');
+    assert.equal(snapshot.width, 6);
+    assert.equal(snapshot.height, 3);
+    const walk = await reg.press('L1', 'right', 'Bob');
+    assert.equal(walk.solvedLevel, null);
+    const push = await reg.press('L1', 'right', 'Bob');
+    assert.equal(push.solvedLevel, 0);
+    assert.equal(push.record.status, 'finished');
+    assert.equal(push.snapshot.kind, 'finished');
+  } finally { await reg.close(); await pool.close(); }
+});
+
+test('a game on a stored level is rebuilt from its log, and from the level itself once its source is gone', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const { levels, level } = storedLevel(dir);
+  const reg = createRegistry({ dataDir: dir, pool, getSource, levels, maxLive: 1 });
+  try {
+    const { record } = await reg.start({ gameId: 'a', channelId: 'c', gistId: 'sok', level });
+    await reg.press('a', 'right');
+    await reg.start({ gameId: 'b', channelId: 'c', gistId: 'sok' }); // evicts a
+    assert.equal(pool.has('a'), false);
+    fs.unlinkSync(path.join(dir, 'sources', record.sourceHash + '.txt'));
+    const push = await reg.press('a', 'right');
+    assert.equal(push.solvedLevel, 0); // the first move was replayed, so this one pushed the crate home
+  } finally { await reg.close(); await pool.close(); }
+});
+
+test('a stored level that no longer fits its game, or has gone, stops the game with a reason', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  let current = SOKOBAN;
+  const changing = async () => current;
+  const { levels, level } = storedLevel(dir);
+  const reg = createRegistry({ dataDir: dir, pool, getSource: changing, levels });
+  // a registry whose level store does not hold the level
+  const otherDir = tmp();
+  const orphaned = createRegistry({ dataDir: otherDir, pool, getSource: changing, levels: createLevelStore({ dataDir: tmp() }) });
+  try {
+    const { record } = await reg.start({ gameId: 'a', channelId: 'c', gistId: 'sok', level });
+    current = SOKOBAN.replace('* = Crate', 'X = Crate'); // the game's author renamed a glyph the level uses
+    fs.unlinkSync(path.join(dir, 'sources', record.sourceHash + '.txt'));
+    await pool.drop('a');
+    await assert.rejects(reg.press('a', 'right'), (e) => e.name === 'EngineError' && /no longer works with the current version of the game/.test(e.message));
+    assert.equal(reg.get('a').status, 'dead');
+    assert.match(reg.get('a').deadReason, /no longer works/);
+
+    current = SOKOBAN;
+    const second = await orphaned.start({ gameId: 'z', channelId: 'c', gistId: 'sok', level });
+    fs.unlinkSync(path.join(otherDir, 'sources', second.record.sourceHash + '.txt'));
+    await pool.drop('z');
+    await assert.rejects(orphaned.press('z', 'right'), (e) => e.name === 'EngineError' && /no longer available/.test(e.message));
+    assert.equal(orphaned.get('z').status, 'dead');
+  } finally { await reg.close(); await orphaned.close(); await pool.close(); }
+});
+
+test('a finished game on a stored level can be played again, in the same record', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const { levels, level } = storedLevel(dir);
+  const reg = createRegistry({ dataDir: dir, pool, getSource, levels });
+  try {
+    await reg.start({ gameId: 'L', channelId: 'c', gistId: 'sok', level });
+    const early = await reg.again('L');
+    assert.equal(early.applied, false); // still playing: nothing to do
+    assert.equal(early.snapshot.kind, 'level');
+    await reg.press('L', 'right', 'Bob');
+    await reg.press('L', 'right', 'Bob');
+    assert.equal(reg.get('L').status, 'finished');
+    const fresh = await reg.again('L');
+    assert.equal(fresh.applied, true);
+    assert.equal(fresh.record.status, 'playing');
+    assert.deepEqual(fresh.record.inputs, []);
+    assert.equal(fresh.record.lastMover, undefined);
+    assert.equal(fresh.snapshot.kind, 'level');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'games', 'L.json'), 'utf8')).status, 'playing');
+    await reg.press('L', 'right');
+    assert.equal((await reg.press('L', 'right')).solvedLevel, 0);
+    await assert.rejects(reg.again('nope'), (e) => e.name === 'NoGameError');
+  } finally { await reg.close(); await pool.close(); }
+});
+
+test('playing again is only for stored levels: a normal game is left as it is', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const reg = createRegistry({ dataDir: dir, pool, getSource });
+  try {
+    await reg.start({ gameId: 'n', channelId: 'c', gistId: 'sok' });
+    await reg.press('n', 'right');
+    const r = await reg.again('n');
+    assert.equal(r.applied, false);
+    assert.deepEqual(r.record.inputs, ['right']);
+  } finally { await reg.close(); await pool.close(); }
+});

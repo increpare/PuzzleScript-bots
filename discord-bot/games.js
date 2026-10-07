@@ -3,13 +3,15 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
 const { createSourceStore } = require('./sources');
+const { splice } = require('./levels');
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
 // How many presses in a row may be refused for taking too long before the game is stopped.
 const MAX_REFUSALS = 3;
 
-function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now, maxRecordBytes = 1_000_000, maxSourceBytes = 99_000_000, sources = createSourceStore({ dataDir, maxBytes: maxSourceBytes, now }) }) {
+// levels: the store of sent levels (see levels.js), needed only for games that run on one.
+function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now, maxRecordBytes = 1_000_000, maxSourceBytes = 99_000_000, sources = createSourceStore({ dataDir, maxBytes: maxSourceBytes, now }), levels = null }) {
   const gamesDir = path.join(dataDir, 'games');
   fs.mkdirSync(gamesDir, { recursive: true });
   const recordSizes = new Map(); // gameId -> bytes on disk
@@ -88,12 +90,30 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
   }
   if (typeof pool.onEvicted === 'function') pool.onEvicted((ids) => ids.forEach(forgetLive));
 
+  const engineError = (message) => Object.assign(new Error(message), { name: 'EngineError' });
+
+  // The source of a game on a sent level: the game the level was made for, with that one level in
+  // place of its own. The game is the copy the level was made against, or the gist as it is now.
+  async function levelSource(level) {
+    let base = sources.load(level.baseSourceHash);
+    if (base === null) base = await getSource(level.gistId);
+    return splice(base, level.text);
+  }
+
   async function ensureLive(rec) {
     if (pool.has(rec.gameId)) { touchLive(rec.gameId); return; }
     // Prefer the stored copy of the source the game started with; only if it has been evicted
     // do we go back to the gist, and then it must still be the same source.
     let source = rec.sourceHash ? sources.load(rec.sourceHash) : null;
-    if (source === null) {
+    if (source === null && rec.levelId) {
+      const level = levels ? levels.get(rec.levelId) : null;
+      if (!level) throw engineError('this level is no longer available');
+      // The game may have changed since the level was sent. The level is then played on the game
+      // as it is now, if it still fits.
+      source = await levelSource(level);
+      rec.sourceHash = sha256(source);
+      sources.save(source);
+    } else if (source === null) {
       source = await getSource(rec.gistId);
       if (rec.sourceHash && rec.sourceHash !== sha256(source)) {
         const err = Object.assign(new Error('the game source changed'), { name: 'EngineError' });
@@ -108,6 +128,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
     } catch (e) {
       // never leave a half-replayed game registered in the pool
       await pool.drop(rec.gameId).catch(() => {});
+      if (rec.levelId && e.name === 'CompileError') throw engineError('this level no longer works with the current version of the game');
       throw e;
     }
     touchLive(rec.gameId);
@@ -133,15 +154,18 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
   }
 
   return {
-    // startLevelNumber counts real levels from 1, skipping message screens
-    async start({ gameId, channelId, gistId, startLevelNumber = 1 }) {
+    // startLevelNumber counts real levels from 1, skipping message screens.
+    // level: a sent level (a record from the level store). The game is then that one level.
+    async start({ gameId, channelId, gistId, startLevelNumber = 1, level = null }) {
       if (closed) throw closedError();
       markBusy(gameId);
       try {
-      const source = await getSource(gistId);
+      if (level) gistId = level.gistId;
+      const source = level ? await levelSource(level) : await getSource(gistId);
       const rec = { gameId, channelId, gistId, seed: gameId, sourceHash: sha256(source), startLevel: 0, inputs: [], status: 'playing', meta: null, createdAt: now(), updatedAt: now() };
+      if (level) rec.levelId = level.id;
       rec.meta = await pool.load(gameId, source, rec.seed, 0);
-      if (startLevelNumber > 1) {
+      if (!level && startLevelNumber > 1) {
         const real = rec.meta.realLevels || [];
         if (startLevelNumber > real.length) {
           await pool.drop(gameId).catch(() => {});
@@ -212,6 +236,40 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
           throw e;
         }
        } finally { unmarkBusy(gameId); }
+      });
+    },
+
+    // Starts a finished game on a sent level afresh, in the same record, so in the same message.
+    // Any other game is left as it is.
+    again(gameId) {
+      if (closed) return Promise.reject(closedError());
+      markBusy(gameId);
+      return enqueue(gameId, async () => {
+        try {
+          const rec = records.get(gameId);
+          if (!rec) throw Object.assign(new Error('unknown game'), { name: 'NoGameError' });
+          if (!rec.levelId || rec.status !== 'finished') {
+            if (rec.status !== 'playing') return { record: rec, snapshot: syntheticSnapshot(rec), applied: false };
+            await ensureLive(rec);
+            return { record: rec, snapshot: await pool.snapshot(gameId), applied: false };
+          }
+          await pool.drop(gameId).catch(() => {});
+          forgetLive(gameId);
+          rec.inputs = [];
+          rec.status = 'playing';
+          delete rec.lastMover;
+          try {
+            await ensureLive(rec);
+          } catch (e) {
+            if (e.name === 'EngineError' || e.name === 'CompileError' || e.name === 'ResourceError') markDead(rec, e);
+            else rec.status = 'finished'; // a passing failure: it is still there to be played again
+            throw e;
+          }
+          const snapshot = await pool.snapshot(gameId);
+          rec.cur = { kind: snapshot.kind, levelIndex: snapshot.levelIndex };
+          persist(rec);
+          return { record: rec, snapshot, applied: true };
+        } finally { unmarkBusy(gameId); }
       });
     },
 
