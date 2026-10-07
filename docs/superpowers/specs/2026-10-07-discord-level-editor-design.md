@@ -348,3 +348,22 @@ application is verified, a second application would be the one with the
 - Phones are supported. Erasing is painting the background; resizing is by
   arrow buttons on the level's edges; undo is a button.
 - Custom levels do not count towards ranks.
+
+## Spike findings (2026-10-07)
+
+From the probe page's own report, opened with the pencil button in
+`#mapeditor-test` in the PuzzleScript server. Desktop only so far (the Discord
+client on Windows); the phone has not reported yet.
+
+| Assumption | Found |
+|---|---|
+| A verified app's Activity launches in a server of that size | Yes. |
+| `launchActivity()` from a button (discord.js 14.27) | Works. Before Activities were enabled it failed with Discord error 50234. |
+| A URL mapping may point at a path | Yes: root `/` → `games.increpare.com/puzzlescriptbot/app` serves the page. |
+| The proxy path | Both `api/…` and `/.proxy/api/…` reach the bot, and the bot sees `/api/…` either way: Discord strips `/.proxy` itself. The page uses plain relative paths, and the server need not strip the prefix. |
+| The Entry Point command | Created when Activities were enabled; `register-commands.js` set its handler to the bot. |
+| `authorize`, the token exchange, `authenticate` | All succeeded. Whether `authorize` showed a prompt is not recorded. |
+| The page may compile code while it runs (`new Function`) | Yes, and no content security policy violations were reported. The engine can run in the page. |
+| Mouse, right-click and keyboard reach the page | Yes: `mousedown`, `mousemove`, `mouseup`, `pointerdown`, `contextmenu` and `keydown` all arrived. |
+| Touch on a phone | Not yet tried. |
+| How the panel is presented | It opened in the focused layout with 2128 × 983 px to itself, that is, in place of the chat, not beside it. Picture-in-picture not yet tried. |
