@@ -46,10 +46,30 @@ test('the ffmpeg command reads both pipes and writes FLV to the output', () => {
   assert.ok(has('-vf', 'scale=1280:720:flags=neighbor'));
   assert.ok(has('-fps_mode', 'vfr'));
   assert.ok(has('-threads', '1'));
-  assert.ok(has('-force_key_frames', 'expr:gte(t,n_forced*2-0.1)'));
+  assert.ok(has('-g', '2'), 'a keyframe every two heartbeats, counted in frames');
+  assert.ok(!a.includes('-force_key_frames'), 'a time-based rule would depend on ffmpeg\'s start-up delay');
   assert.ok(has('-c:a', 'aac'));
   assert.ok(has('-f', 'flv'));
   assert.equal(a[a.length - 1], 'rtmp://example/app/key');
+});
+
+test('keyframes are spaced two heartbeats apart, whatever the minimum frame rate', () => {
+  const has = (a, ...seq) => a.some((_, i) => seq.every((v, k) => a[i + k] === v));
+  assert.ok(has(ffmpegArgs('x', 5), '-g', '10'));
+  assert.ok(has(ffmpegArgs('x', 0.5), '-g', '2'), 'never fewer than 2 frames');
+  const launches = [];
+  const spawnFfmpeg = (output, minFps) => {
+    launches.push([output, minFps]);
+    const p = new EventEmitter();
+    p.stdin = pipe();
+    p.stdio = [p.stdin, null, new EventEmitter(), pipe()];
+    p.stderr = p.stdio[2];
+    p.kill = () => {};
+    return p;
+  };
+  const enc = createEncoder({ output: 'x', minFps: 5, spawnFfmpeg, log: () => {}, autoTick: false });
+  enc.start();
+  assert.deepEqual(launches, [['x', 5]]);
 });
 
 test('audio is written in step with the clock, padded with silence', () => {

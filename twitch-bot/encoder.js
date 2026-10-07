@@ -6,7 +6,10 @@ const FIRST_BACKOFF = 2000, MAX_BACKOFF = 60000, HEALTHY_MS = 60000, KILL_AFTER_
 
 // Measured on the Pi: an unchanged frame costs as much to encode as a changed one, so the saving
 // is in sending few frames; one x264 thread is cheaper than the default at these frame rates.
-function ffmpegArgs(output) {
+// A keyframe comes every two heartbeats, counted in frames (-g): a time-based rule would depend on
+// when ffmpeg's timeline starts relative to this process's clock, which is ffmpeg's start-up delay
+// and not known here. Counting frames bounds the gap at two heartbeats whatever that offset is.
+function ffmpegArgs(output, minFps = 1) {
   return [
     '-hide_banner', '-nostdin', '-loglevel', 'warning',
     '-thread_queue_size', '64', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-video_size', '640x360', '-framerate', '30',
@@ -14,14 +17,14 @@ function ffmpegArgs(output) {
     '-thread_queue_size', '512', '-f', 's16le', '-ar', '44100', '-ac', '2', '-i', 'pipe:3',
     '-vf', 'scale=1280:720:flags=neighbor', '-fps_mode', 'vfr',
     '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', '-threads', '1', '-pix_fmt', 'yuv420p',
-    '-crf', '23', '-maxrate', '2500k', '-bufsize', '5000k', '-g', '600', '-force_key_frames', 'expr:gte(t,n_forced*2-0.1)',
+    '-crf', '23', '-maxrate', '2500k', '-bufsize', '5000k', '-g', String(Math.max(2, Math.round(minFps * 2))),
     '-c:a', 'aac', '-b:a', '160k',
     '-flush_packets', '1', '-f', 'flv', '-y', output,
   ];
 }
 
-function defaultSpawn(output) {
-  return spawn('ffmpeg', ffmpegArgs(output), { stdio: ['pipe', 'ignore', 'pipe', 'pipe'] });
+function defaultSpawn(output, minFps) {
+  return spawn('ffmpeg', ffmpegArgs(output, minFps), { stdio: ['pipe', 'ignore', 'pipe', 'pipe'] });
 }
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
@@ -57,7 +60,7 @@ function createEncoder({ output, minFps = 1, readAudio = () => Buffer.alloc(0), 
       backoff = Math.min(backoff * 2, MAX_BACKOFF);
     };
     try {
-      p = spawnFfmpeg(output);
+      p = spawnFfmpeg(output, minFps);
       proc = p;
       p.on('error', (e) => finish(e && e.message));
       p.on('exit', (code, signal) => finish(signal || 'code ' + code));
