@@ -11,7 +11,7 @@ const { createSigner } = require('../signing');
 
 const DAY = 24 * 60 * 60 * 1000;
 
-async function start(t, { oauth, api, now = () => 0, indexHtml } = {}) {
+async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, devSession } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-http-'));
   const staticDir = path.join(dir, 'site');
   // a second directory, looked in after the first
@@ -31,6 +31,8 @@ async function start(t, { oauth, api, now = () => 0, indexHtml } = {}) {
   const server = createHttpServer({
     staticDirs: [staticDir, otherDir],
     indexHtml,
+    workshop,
+    devSession,
     oauth: oauth || { exchange: async (code) => ({ accessToken: 'tok-' + code, user: { id: '42', name: 'n' } }) },
     signer,
     api: api || {
@@ -174,4 +176,101 @@ test('without a session that is valid, signed here and unexpired, the api answer
   clock = DAY;
   assert.equal((await fetch(base + '/api/tweak', { headers: bearer(good) })).status, 401);
   assert.deepEqual(calls, []);
+});
+
+// ---- the workshop's shared document ----
+const { WorkshopError } = require('../workshop-doc');
+
+function fakeWorkshop() {
+  const calls = [];
+  const pulls = [];
+  return {
+    calls, pulls,
+    state: () => ({ doc: 'title T', version: 3 }),
+    push(version, updates) {
+      calls.push(['push', version, updates]);
+      if (version === 99) throw new WorkshopError('a change does not fit the document');
+      return { accepted: version === 3 };
+    },
+    pull(version) {
+      let resolve;
+      const waiting = { version, cancelled: false, promise: new Promise((r) => { resolve = r; }), cancel() { waiting.cancelled = true; resolve({ updates: [] }); }, answer: (r) => resolve(r) };
+      pulls.push(waiting);
+      return waiting;
+    },
+  };
+}
+const jsonPost = (url, session, body) => fetch(url, { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, session ? bearer(session) : {}), body: JSON.stringify(body) });
+
+test('workshop: the document, pushing changes and waiting for them all need a session', async (t) => {
+  const workshop = fakeWorkshop();
+  const { base, signer } = await start(t, { workshop });
+  assert.equal((await fetch(base + '/api/workshop')).status, 401);
+  assert.equal((await jsonPost(base + '/api/workshop/push', null, { version: 3, updates: [] })).status, 401);
+  assert.equal((await fetch(base + '/api/workshop/pull?version=3')).status, 401);
+  assert.deepEqual(workshop.calls, []);
+  assert.deepEqual(workshop.pulls, []);
+
+  const session = signer.sign({ uid: '42' }, DAY);
+  assert.deepEqual(await (await fetch(base + '/api/workshop', { headers: bearer(session) })).json(), { doc: 'title T', version: 3 });
+  assert.deepEqual(await (await jsonPost(base + '/api/workshop/push', session, { version: 3, updates: [{ clientID: 'a', changes: [7] }] })).json(), { accepted: true });
+  assert.deepEqual(await (await jsonPost(base + '/api/workshop/push', session, { version: 2, updates: [{ clientID: 'a', changes: [7] }] })).json(), { accepted: false });
+  assert.deepEqual(workshop.calls[0], ['push', 3, [{ clientID: 'a', changes: [7] }]]);
+  const refused = await jsonPost(base + '/api/workshop/push', session, { version: 99, updates: [] });
+  assert.equal(refused.status, 400);
+  assert.deepEqual(await refused.json(), { error: 'a change does not fit the document' });
+});
+
+test('workshop: a pull is held open until there is something to say', async (t) => {
+  const workshop = fakeWorkshop();
+  const { base, signer } = await start(t, { workshop });
+  const session = signer.sign({ uid: '42' }, DAY);
+  let answered = null;
+  const pending = fetch(base + '/api/workshop/pull?version=3', { headers: bearer(session) }).then((r) => r.json()).then((j) => { answered = j; });
+  while (workshop.pulls.length === 0) await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(answered, null);
+  assert.equal(workshop.pulls[0].version, 3);
+  workshop.pulls[0].answer({ updates: [{ clientID: 'b', changes: [7] }] });
+  await pending;
+  assert.deepEqual(answered, { updates: [{ clientID: 'b', changes: [7] }] });
+});
+
+test('workshop: a pull whose asker goes away is cancelled', async (t) => {
+  const workshop = fakeWorkshop();
+  const { base, signer } = await start(t, { workshop });
+  const gone = new AbortController();
+  const pending = fetch(base + '/api/workshop/pull?version=3', { headers: bearer(signer.sign({ uid: '42' }, DAY)), signal: gone.signal }).catch(() => 'aborted');
+  while (workshop.pulls.length === 0) await new Promise((r) => setTimeout(r, 5));
+  gone.abort();
+  assert.equal(await pending, 'aborted');
+  for (let i = 0; i < 100 && !workshop.pulls[0].cancelled; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(workshop.pulls[0].cancelled, true);
+});
+
+test('workshop: a whole game can be pushed in one change, though other requests stay small', async (t) => {
+  const workshop = fakeWorkshop();
+  const { base, signer } = await start(t, { workshop });
+  const session = signer.sign({ uid: '42' }, DAY);
+  const big = { version: 3, updates: [{ clientID: 'a', changes: [[0, 'x'.repeat(500 * 1024)]] }] };
+  assert.equal((await jsonPost(base + '/api/workshop/push', session, big)).status, 200);
+  assert.equal((await jsonPost(base + '/api/levels', session, { text: 'x'.repeat(500 * 1024) })).status, 413);
+  const tooBig = { version: 3, updates: [{ clientID: 'a', changes: [[0, 'x'.repeat(3 * 1024 * 1024)]] }] };
+  assert.equal((await jsonPost(base + '/api/workshop/push', session, tooBig)).status, 413);
+});
+
+test('without a workshop there are no workshop routes', async (t) => {
+  const { base, signer } = await start(t);
+  assert.equal((await fetch(base + '/api/workshop', { headers: bearer(signer.sign({ uid: '42' }, DAY)) })).status, 404);
+});
+
+test('a session without Discord is only given out when that has been switched on, for working on the page', async (t) => {
+  const off = await start(t);
+  assert.equal((await fetch(off.base + '/api/dev-session')).status, 404);
+  const on = await start(t, { devSession: true, workshop: fakeWorkshop() });
+  const r = await fetch(on.base + '/api/dev-session');
+  assert.equal(r.status, 200);
+  const { session } = await r.json();
+  assert.match(on.signer.verify(session).uid, /^dev-/);
+  assert.equal((await fetch(on.base + '/api/workshop', { headers: bearer(session) })).status, 200);
 });

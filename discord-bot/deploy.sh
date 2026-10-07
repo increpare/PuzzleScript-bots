@@ -22,6 +22,10 @@ rsync -az --delete "$PS/src/js/" "$HOST:~/$DEST/puzzlescript/src/js/"
 rsync -az "$PS/src/games_dat.js" "$HOST:~/$DEST/puzzlescript/src/games_dat.js"
 rsync -az --delete --exclude node_modules --exclude data --exclude .env "$HERE/" "$HOST:~/$DEST/discord-bot/"
 if [ -f "$LABS/src/editor.html" ]; then
+  # The workshop's CodeMirror runtime is built from labs' runtime source and committed here. If
+  # labs has changed that source since, the two no longer belong together.
+  WANT="sha256:$(shasum -a 256 "$LABS/src/js/codemirror6/runtime/source/index.js" | cut -d' ' -f1)"
+  grep -q "$WANT" "$HERE/activity/workshop/codemirror6-runtime.js" || { echo "the workshop's CodeMirror runtime was built from a different labs source: run discord-bot/scripts/build-workshop-runtime.sh" >&2; exit 1; }
   # only what the editor page loads: nothing else of labs is put on the server
   ssh "$HOST" "mkdir -p ~/$DEST/labs/src"
   rsync -az --delete --delete-excluded \

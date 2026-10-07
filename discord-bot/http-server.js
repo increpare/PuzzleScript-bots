@@ -2,6 +2,7 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { OAuthError } = require('./discord-oauth');
 
 // Only these are served. Anything else in the page directories is not for the browser.
@@ -20,6 +21,9 @@ const TYPES = {
   '.ttf': 'font/ttf',
 };
 const MAX_BODY = 64 * 1024;
+// Loading a game into the workshop replaces the whole document in one change, so a change can be
+// as big as a game, and JSON makes it a little bigger.
+const MAX_PUSH_BODY = 2.5 * 1024 * 1024;
 const SESSION_MS = 24 * 60 * 60 * 1000;
 
 // no-cache: Discord's proxy and its clients hold on to files, and a deploy has to show at once.
@@ -30,17 +34,17 @@ function json(res, status, obj) {
 
 // Reads a JSON object from the request. Rejects with {status} for a body that is too large or is not one.
 // An oversize body is read to its end and thrown away, so that the client gets its answer.
-function readJson(req) {
+function readJson(req, max = MAX_BODY) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
     req.on('data', (c) => {
       size += c.length;
-      if (size <= MAX_BODY) chunks.push(c);
+      if (size <= max) chunks.push(c);
     });
     req.on('error', () => reject({ status: 400 }));
     req.on('end', () => {
-      if (size > MAX_BODY) return reject({ status: 413 });
+      if (size > max) return reject({ status: 413 });
       try {
         const v = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         if (!v || typeof v !== 'object' || Array.isArray(v)) return reject({ status: 400 });
@@ -60,7 +64,10 @@ function readJson(req) {
 // api: what the page can ask for once signed in.
 //   tweak(uid)        → what that user is about to edit, or null
 //   submit(uid, body) → the outcome of sending a level
-function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, log = console.error }) {
+// workshop: the shared document (see workshop-doc.js), when there is a workshop.
+// devSession: hand a session to anyone who asks, without Discord. This is for working on the page
+//   on one's own machine and must never be on where the server can be reached by others.
+function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, workshop = null, devSession = false, log = console.error }) {
   const roots = staticDirs.map((d) => path.resolve(d));
 
   // The signed-in user's id, from the session the token exchange handed the page; null without one.
@@ -97,7 +104,33 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, lo
   }
 
   async function handle(req, res) {
-    const p = new URL(req.url, 'http://localhost').pathname;
+    const url = new URL(req.url, 'http://localhost');
+    const p = url.pathname;
+    if (devSession && p === '/api/dev-session' && req.method === 'GET') {
+      return json(res, 200, { session: signer.sign({ uid: 'dev-' + crypto.randomBytes(4).toString('hex') }, SESSION_MS) });
+    }
+    if (workshop && (p === '/api/workshop' || p.startsWith('/api/workshop/'))) {
+      if (sessionUser(req) === null) return json(res, 401, { error: 'sign in again' });
+      if (p === '/api/workshop' && req.method === 'GET') return json(res, 200, workshop.state());
+      if (p === '/api/workshop/push' && req.method === 'POST') {
+        const body = await readJson(req, MAX_PUSH_BODY);
+        try {
+          return json(res, 200, workshop.push(body.version, body.updates));
+        } catch (e) {
+          if (e.name !== 'WorkshopError') throw e;
+          return json(res, 400, { error: e.message });
+        }
+      }
+      if (p === '/api/workshop/pull' && req.method === 'GET') {
+        // Held open until there is news (or a while has passed): this is how changes reach an editor.
+        const waiting = workshop.pull(Number(url.searchParams.get('version')));
+        res.on('close', () => { if (!res.writableEnded) waiting.cancel(); });
+        const result = await waiting.promise;
+        if (!res.writableEnded && !res.destroyed) json(res, 200, result);
+        return;
+      }
+      return json(res, 404, { error: 'not found' });
+    }
     if (p === '/api/token' && req.method === 'POST') {
       const body = await readJson(req);
       try {
