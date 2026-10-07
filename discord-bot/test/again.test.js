@@ -174,3 +174,17 @@ test('capturing stops, without affecting the move, when there are too many frame
   assert.equal(findX(host.snapshot(), '#b2dcef'), 7);
   host.dispose();
 });
+
+test('captured frames carry what is needed to draw them without the final snapshot', () => {
+  const host = createHost();
+  host.load(SLIDE, 'seed', 0);
+  host.input('right', { capture: true });
+  const frames = host.takeFrames();
+  const snap = host.snapshot();
+  assert.deepEqual(frames.sprites, snap.sprites);
+  assert.equal(frames.background, snap.background);
+  assert.equal(frames.textColor, snap.textColor);
+  assert.equal(frames.stride, 1);
+  assert.equal(frames.objectCount, Object.keys(snap.sprites).length);
+  host.dispose();
+});

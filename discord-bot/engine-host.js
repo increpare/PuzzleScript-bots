@@ -190,6 +190,9 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
       intervalMs: Number.isFinite(interval) && interval > 0 ? Math.round(interval * 1000) : DEFAULT_AGAIN_INTERVAL_MS,
       stride: ps.STRIDE_OBJ,
       objectCount: ps.state.objectCount,
+      sprites: allSprites(),
+      background: hexColor(ps.state.bgcolor),
+      textColor: hexColor(ps.state.fgcolor),
     };
   }
 
@@ -306,6 +309,17 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
     return full;
   }
 
+  // Every object's sprite, by object id.
+  function allSprites() {
+    const state = ps.state;
+    const sprites = {};
+    for (let k = 0; k < state.objectCount; k++) {
+      const o = state.objects[state.idDict[k]];
+      sprites[k] = { colors: o.colors.map(hexColor), dat: o.spritematrix };
+    }
+    return sprites;
+  }
+
   function snapshot() {
     const state = ps.state;
     const base = {
@@ -339,12 +353,7 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
       for (let k = 0; k < objectCount; k++) if (probe.get(k)) ids.push(k);
       cells[i] = ids;
     }
-    const sprites = {};
-    for (let k = 0; k < objectCount; k++) {
-      const o = state.objects[state.idDict[k]];
-      sprites[k] = { colors: o.colors.map(hexColor), dat: o.spritematrix };
-    }
-    return Object.assign(base, { kind: 'level', width: level.width, height: level.height, cells, sprites, viewport: viewport() });
+    return Object.assign(base, { kind: 'level', width: level.width, height: level.height, cells, sprites: allSprites(), viewport: viewport() });
   }
 
   // The Twitch stream frames the game with its own tiles. A sprite with no visible pixel is no use.
