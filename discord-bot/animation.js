@@ -4,6 +4,8 @@ const { renderLevelRGBA, renderTextRGBA, parseHex, FRAME_W, FRAME_H } = require(
 
 // Browsers play a frame shorter than this at a tenth of a second instead.
 const MIN_DELAY_CS = 2;
+// The longest a frame can be held: about eleven minutes.
+const REST_DELAY_CS = 65535;
 
 const isTransparent = (c) => String(c).trim().toLowerCase() === 'transparent';
 
@@ -101,7 +103,8 @@ function buildAnimation({ base, frames, onProgress = null, budgetMs = 5000, now 
   }
   if (final) {
     put(final, 0);
-    if (held.delayCs === 0) held.delayCs = intervalCs;
+    // A viewer should stop here. One that loops anyway is kept waiting as long as a GIF can ask.
+    held.delayCs = REST_DELAY_CS;
   }
   gif.addFrame(held);
   const out = gif.finish();

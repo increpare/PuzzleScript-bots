@@ -43,7 +43,8 @@ Typing `/play` suggests games from the puzzlescript.net gallery; any gist id or 
 
 A move that sets off `again` turns is shown as one animated GIF, a frame per turn at the game's
 `again_interval`. A chain that ends plays once and rests on the final state (its first frame is the
-final state for one blink, so a client that shows GIFs as stills still shows the right board).
+final state for one blink, so a client that shows GIFs as stills still shows the right board, and
+its last frame is held for the longest a GIF allows in case a viewer loops it anyway).
 
 - **Loops.** Some games animate for ever on purpose (an explosion that keeps flickering after you
   lose). The chain is stopped as soon as a state repeats, the GIF loops, and only undo and restart

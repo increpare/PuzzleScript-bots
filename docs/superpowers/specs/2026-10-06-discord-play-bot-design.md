@@ -178,7 +178,9 @@ turns them into a GIF with one shared palette, each frame covering only the
 pixels that changed, at the game's `again_interval` (150 ms by default, never
 under 20 ms). A chain that ended plays once: the first frame is the final
 state for one blink, so that a client showing a GIF as a still shows the right
-board, then the turns, resting on the final state. A loop plays for ever. If
+board, then the turns, resting on the final state. That last frame is given
+the longest delay a GIF allows (about eleven minutes), so a viewer that loops
+regardless of the missing loop block still rests on it. A loop plays for ever. If
 there are too many frames or colours, or encoding runs long, the still PNG is
 sent instead.
 

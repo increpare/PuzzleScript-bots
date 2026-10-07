@@ -50,7 +50,8 @@ test('a chain that ends plays once: the final state first for a blink, each turn
   assert.ok(!same(shown[1], final), 'then the first turn');
   for (let i = 1; i < shown.length - 1; i++) assert.ok(!same(shown[i], shown[i + 1]), 'each turn changes the picture');
   assert.ok(same(shown[shown.length - 1], final), 'and it comes to rest on the final state');
-  assert.deepEqual(gif.frames.slice(1).map((f) => f.delayCs), [15, 15, 15, 15, 15]);
+  assert.deepEqual(gif.frames.slice(1).map((f) => f.delayCs), [15, 15, 15, 15, 65535],
+    'the last frame is held as long as a GIF allows, so a viewer that loops regardless still rests on it');
 });
 
 test('turns after the first only redraw what changed', () => {
@@ -73,11 +74,12 @@ test('a loop plays for ever, one pass around it', () => {
   const shown = play(gif);
   assert.ok(same(shown[0], rgbOf(renderLevelRGBA(base))), 'the loop starts on the state the game is left in');
   assert.ok(!same(shown[0], shown[1]) && !same(shown[1], shown[2]) && !same(shown[0], shown[2]));
+  assert.deepEqual(gif.frames.map((f) => f.delayCs), [15, 15, 15], 'a loop has no resting frame');
 });
 
 test('the delay follows again_interval, held longer for turns that looked the same, and never under 20 ms', () => {
   const fast = slide('again_interval 0.005');
-  assert.deepEqual(decodeGIF(buildAnimation(fast)).frames.slice(1).map((f) => f.delayCs), [2, 2, 2, 2, 2]);
+  assert.deepEqual(decodeGIF(buildAnimation(fast)).frames.slice(1, -1).map((f) => f.delayCs), [2, 2, 2, 2]);
   const held = slide();
   held.frames.list[1].repeat = 3;
   assert.equal(decodeGIF(buildAnimation(held)).frames[2].delayCs, 45);
@@ -92,6 +94,8 @@ test('a chain that ends on a message screen rests on the message', () => {
   assert.ok(same(shown[0], text));
   assert.ok(same(shown[shown.length - 1], text));
   assert.equal(gif.frames.length, 7, 'the blink, five turns, then the message');
+  assert.equal(gif.frames[6].delayCs, 65535);
+  assert.equal(gif.frames[5].delayCs, 15, 'the last turn is shown for its own interval before the message');
 });
 
 test('it reports progress for every frame, and gives up when it runs out of time', () => {
