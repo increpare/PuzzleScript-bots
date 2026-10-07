@@ -33,9 +33,10 @@ test('names the missing keys', () => {
   assert.throws(() => loadConfig(envFile('GITHUB_TOKEN=gh\n'), {}), /missing config: TWITCH_CHANNEL, TWITCH_STREAM_KEY/);
 });
 
-test('MIN_FPS is read, capped at 20, and falls back to 1 when invalid', () => {
+test('MIN_FPS is read, kept between 1 and 20, and falls back to 1 when invalid', () => {
   const base = 'TWITCH_CHANNEL=c\nGITHUB_TOKEN=gh\nOUTPUT=o\n';
   assert.equal(loadConfig(envFile(base + 'MIN_FPS=5\n'), {}).minFps, 5);
+  assert.equal(loadConfig(envFile(base + 'MIN_FPS=0.5\n'), {}).minFps, 1, 'it only raises the idle frame rate');
   assert.equal(loadConfig(envFile(base + 'MIN_FPS=99\n'), {}).minFps, 20);
   assert.equal(loadConfig(envFile(base + 'MIN_FPS=zero\n'), {}).minFps, 1);
   assert.equal(loadConfig(envFile(base + 'MIN_FPS=-2\n'), {}).minFps, 1);

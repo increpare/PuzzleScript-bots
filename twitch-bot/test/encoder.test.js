@@ -46,17 +46,18 @@ test('the ffmpeg command reads both pipes and writes FLV to the output', () => {
   assert.ok(has('-vf', 'scale=1280:720:flags=neighbor'));
   assert.ok(has('-fps_mode', 'vfr'));
   assert.ok(has('-threads', '1'));
-  assert.ok(has('-g', '2'), 'a keyframe every two heartbeats, counted in frames');
+  assert.ok(has('-g', '2'), 'at the default 1 fps, a keyframe every two seconds of heartbeat frames');
   assert.ok(!a.includes('-force_key_frames'), 'a time-based rule would depend on ffmpeg\'s start-up delay');
   assert.ok(has('-c:a', 'aac'));
   assert.ok(has('-f', 'flv'));
   assert.equal(a[a.length - 1], 'rtmp://example/app/key');
 });
 
-test('keyframes are spaced two heartbeats apart, whatever the minimum frame rate', () => {
+test('the keyframe interval is two seconds worth of heartbeat frames', () => {
   const has = (a, ...seq) => a.some((_, i) => seq.every((v, k) => a[i + k] === v));
-  assert.ok(has(ffmpegArgs('x', 5), '-g', '10'));
-  assert.ok(has(ffmpegArgs('x', 0.5), '-g', '2'), 'never fewer than 2 frames');
+  assert.ok(has(ffmpegArgs('x', 1), '-g', '2'));
+  assert.ok(has(ffmpegArgs('x', 5), '-g', '10'), '5 heartbeats a second for 2 seconds');
+  assert.ok(has(ffmpegArgs('x', 0.5), '-g', '2'), 'a group of pictures is never shorter than 2 frames');
   const launches = [];
   const spawnFfmpeg = (output, minFps) => {
     launches.push([output, minFps]);
@@ -70,6 +71,32 @@ test('keyframes are spaced two heartbeats apart, whatever the minimum frame rate
   const enc = createEncoder({ output: 'x', minFps: 5, spawnFfmpeg, log: () => {}, autoTick: false });
   enc.start();
   assert.deepEqual(launches, [['x', 5]]);
+});
+
+test('a minFps below 1 is raised to 1, so the heartbeat and the keyframe interval agree', () => {
+  const launches = [], procs = [];
+  let clock = 5000;
+  const spawnFfmpeg = (output, minFps) => {
+    launches.push(minFps);
+    const p = new EventEmitter();
+    p.stdin = pipe();
+    p.stdio = [p.stdin, null, new EventEmitter(), pipe()];
+    p.stderr = p.stdio[2];
+    p.kill = () => {};
+    procs.push(p);
+    return p;
+  };
+  const enc = createEncoder({ output: 'x', minFps: 0.5, spawnFfmpeg, now: () => clock, log: () => {}, autoTick: false });
+  enc.setFrame(FRAME_A);
+  enc.start();
+  const at = (ms) => { clock = 5000 + ms; enc._tick(); };
+  at(0); at(500); at(980);
+  assert.equal(procs[0].stdin.chunks.length, 1);
+  at(1000);
+  assert.equal(procs[0].stdin.chunks.length, 2, 'a heartbeat after 1 second, not 2');
+  at(2000);
+  assert.equal(procs[0].stdin.chunks.length, 3);
+  assert.deepEqual(launches, [1]);
 });
 
 test('audio is written in step with the clock, padded with silence', () => {

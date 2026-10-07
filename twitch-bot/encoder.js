@@ -6,9 +6,10 @@ const FIRST_BACKOFF = 2000, MAX_BACKOFF = 60000, HEALTHY_MS = 60000, KILL_AFTER_
 
 // Measured on the Pi: an unchanged frame costs as much to encode as a changed one, so the saving
 // is in sending few frames; one x264 thread is cheaper than the default at these frame rates.
-// A keyframe comes every two heartbeats, counted in frames (-g): a time-based rule would depend on
-// when ffmpeg's timeline starts relative to this process's clock, which is ffmpeg's start-up delay
-// and not known here. Counting frames bounds the gap at two heartbeats whatever that offset is.
+// A keyframe comes every two seconds' worth of heartbeat frames, and more often while the picture
+// is changing. It is counted in frames (-g) because a time-based rule would depend on when ffmpeg's
+// timeline starts relative to this process's clock, which is ffmpeg's start-up delay and not known
+// here. This holds for minFps of 1 or more; createEncoder never uses a lower rate.
 function ffmpegArgs(output, minFps = 1) {
   return [
     '-hide_banner', '-nostdin', '-loglevel', 'warning',
@@ -33,7 +34,8 @@ const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 // they arrive, so one is written only when the picture changes, plus a heartbeat. Audio is written
 // by sample count: exactly as many samples as real time has advanced, so the two never drift apart.
 function createEncoder({ output, minFps = 1, readAudio = () => Buffer.alloc(0), spawnFfmpeg = defaultSpawn, now = monotonicMs, log = console.log, setTimer = setTimeout, clearTimer = clearTimeout, autoTick = true }) {
-  const beatMs = 1000 / minFps;
+  const fps = Math.max(1, minFps); // the heartbeat and the keyframe interval both follow this, so they cannot disagree
+  const beatMs = 1000 / fps;
   const redact = (text) => String(text).split(output).join('<output>');
   let frame = null, dirty = false;
   let proc = null, t0 = 0, sentSamples = 0, lastWrite = -Infinity, nextBeat = 0;
@@ -60,7 +62,7 @@ function createEncoder({ output, minFps = 1, readAudio = () => Buffer.alloc(0), 
       backoff = Math.min(backoff * 2, MAX_BACKOFF);
     };
     try {
-      p = spawnFfmpeg(output, minFps);
+      p = spawnFfmpeg(output, fps);
       proc = p;
       p.on('error', (e) => finish(e && e.message));
       p.on('exit', (code, signal) => finish(signal || 'code ' + code));

@@ -29,7 +29,7 @@ function loadConfig(envPath = DEFAULT_ENV, processEnv = process.env) {
     channel: String(env.TWITCH_CHANNEL).trim().replace(/^#/, '').toLowerCase(),
     githubToken: env.GITHUB_TOKEN,
     output: env.OUTPUT || 'rtmp://live.twitch.tv/app/' + env.TWITCH_STREAM_KEY,
-    minFps: Number.isFinite(minFps) && minFps > 0 ? Math.min(minFps, 20) : 1,
+    minFps: Number.isFinite(minFps) ? Math.min(Math.max(minFps, 1), 20) : 1, // only ever raises the idle frame rate
   });
 }
 
