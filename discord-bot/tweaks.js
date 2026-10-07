@@ -17,4 +17,26 @@ function tweakAllowed(channels, channelId, parentId) {
   return channels.includes(channelId) || (!!parentId && channels.includes(parentId));
 }
 
-module.exports = { parseTweakChannels, tweakAllowed };
+// What each user is about to edit. Discord tells a launched Activity who is using it and in which
+// channel, but nothing about the button that launched it, so the bot remembers the press here and
+// the page asks for it after signing in. Kept in memory: after a restart the pencil is pressed again.
+function createPending({ ttlMs = 15 * 60 * 1000, now = Date.now, max = 1000 } = {}) {
+  const entries = new Map(); // userId -> { entry, at }; a Map keeps the order things were set in
+
+  return {
+    // the newest press wins
+    set(userId, entry) {
+      entries.delete(userId);
+      entries.set(userId, { entry, at: now() });
+      while (entries.size > max) entries.delete(entries.keys().next().value);
+    },
+    get(userId) {
+      const found = entries.get(userId);
+      if (!found) return null;
+      if (now() - found.at >= ttlMs) { entries.delete(userId); return null; }
+      return found.entry;
+    },
+  };
+}
+
+module.exports = { parseTweakChannels, tweakAllowed, createPending };
