@@ -1,0 +1,62 @@
+title noisy rule group
+author test
+
+========
+OBJECTS
+========
+
+Background
+black
+
+Wall
+grey
+
+Player
+red
+
+Lamp
+yellow
+
+Dark
+blue
+
+=======
+LEGEND
+=======
+
+. = Background
+# = Wall
+P = Player
+L = Lamp
+
+=======
+SOUNDS
+=======
+
+================
+COLLISIONLAYERS
+================
+
+Background
+Lamp, Dark
+Player, Wall
+
+======
+RULES
+======
+
+[ Lamp ] -> [ Dark ]
++ [ Dark ] -> [ Lamp ]
+
+==============
+WINCONDITIONS
+==============
+
+=======
+LEVELS
+=======
+
+#######
+#P...L#
+#######
+

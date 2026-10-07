@@ -234,3 +234,28 @@ test('level numbering leaves out message screens', () => {
   assert.deepEqual([s.kind, s.levelNumber, s.realLevelCount], ['level', 1, 1]);
   host.dispose();
 });
+
+test('a game that raises a warning every turn keeps playing past a hundred turns', () => {
+  const host = createHost();
+  host.load(FIXTURE('noisy-rule-group.txt'), 'seed', 0);
+  for (let i = 0; i < 151; i++) assert.equal(host.input(i % 2 ? 'left' : 'right'), true, 'move ' + (i + 1));
+  assert.equal(host.levelString(), 'background wall:0,0,0,0,background:1,0,0,\nbackground player:2,0,0,1,0,0,1,\n0,0,background lamp:3,0,0,0,0,\n');
+  host.dispose();
+});
+
+test('Tiny Treasure Hunt, which warns on every turn, survives a long session', () => {
+  const host = createHost();
+  host.load(DEMO('tiny treasure hunt.txt'), 'seed', 0);
+  const acts = ['up', 'down', 'left', 'right', 'action'];
+  let seed = 99;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let i = 0; i < 300; i++) {
+    const s = host.snapshot();
+    if (s.kind === 'finished') break;
+    if (s.kind === 'message') host.input('continue');
+    else if (s.animating === 'loop') host.input('undo');
+    else if (s.animating === 'more') host.input('continue');
+    else host.input(acts[(rnd() * acts.length) | 0]);
+  }
+  host.dispose();
+});
