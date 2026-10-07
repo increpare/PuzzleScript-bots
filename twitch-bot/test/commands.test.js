@@ -41,3 +41,18 @@ test('ordinary chat is not a command', () => {
   for (const t of ['lol right?', 'go up', 'up up', '', '   ', 'uu', 'restart!', 'hasOwnProperty', 'toString']) assert.equal(parseCommand(t), null);
   assert.equal(parseCommand(undefined), null);
 });
+
+test('invisible characters that chat clients add to repeat a message are ignored', () => {
+  for (const t of ['up \u{E0000}', 'up\u{E0000}', 'up​', '​up', 'up​‍', '﻿up', 'u­p', '!up \u{E0000}', 'UP\u{E0020}\u{E007F}']) assert.deepEqual(parseCommand(t), input('up'), JSON.stringify(t));
+  assert.deepEqual(parseCommand('!skip \u{E0000}'), { type: 'skip' });
+  assert.deepEqual(parseCommand('​!SKIP​'), { type: 'skip' });
+  assert.deepEqual(parseCommand('r \u{E0000}'), input('right'));
+});
+
+test('a message of only invisible characters is not a command', () => {
+  for (const t of ['\u{E0000}', ' ​ ', '\u{E0000}​﻿', '!\u{E0000}']) assert.equal(parseCommand(t), null, JSON.stringify(t));
+});
+
+test('invisible characters do not turn ordinary chat into a command', () => {
+  for (const t of ['up​ up', 'up \u{E0000} up', 'go​up', '!!up​', '\u{E0000}skip']) assert.equal(parseCommand(t), null, JSON.stringify(t));
+});

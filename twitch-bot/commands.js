@@ -10,9 +10,13 @@ const INPUTS = new Map([
   ['restart', 'restart'], // no single letter: it wipes the level
 ]);
 
+// Third-party chat clients append invisible characters (zero-width and other format characters, and
+// the tag characters at U+E0000) so that a viewer can send the same message twice in a row.
+const INVISIBLE = /[\p{Cf}\u{E0000}-\u{E007F}]/gu;
+
 // The whole message must be a command, so ordinary chat never moves the player.
 function parseCommand(text) {
-  const t = String(text === undefined || text === null ? '' : text).trim().toLowerCase();
+  const t = String(text === undefined || text === null ? '' : text).replace(INVISIBLE, '').trim().toLowerCase();
   if (t === '!skip') return { type: 'skip' };
   const word = t.startsWith('!') ? t.slice(1) : t;
   return INPUTS.has(word) ? { type: 'input', action: INPUTS.get(word) } : null;
