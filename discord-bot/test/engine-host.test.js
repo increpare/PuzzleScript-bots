@@ -222,3 +222,15 @@ test('frameTiles treats a fully transparent wall as no wall', () => {
   assert.equal(host.frameTiles().wall, null);
   host.dispose();
 });
+
+test('level numbering leaves out message screens', () => {
+  const host = createHost();
+  const meta = host.load(FIXTURE('message-game.txt'), 'seed', 0); // message, level, message
+  assert.deepEqual(meta.realLevels, [1]);
+  let s = host.snapshot();
+  assert.deepEqual([s.kind, s.levelNumber, s.realLevelCount], ['message', 1, 1]);
+  host.input('continue');
+  s = host.snapshot();
+  assert.deepEqual([s.kind, s.levelNumber, s.realLevelCount], ['level', 1, 1]);
+  host.dispose();
+});

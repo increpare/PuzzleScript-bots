@@ -241,3 +241,18 @@ test('press records who made the last applied move', async () => {
     assert.equal((await reg.press('lm', 'continue', 'bob')).record.lastMover, 'alice', 'inapplicable presses do not change it');
   } finally { await reg.close(); await pool.close(); }
 });
+
+test('start level numbers count real levels only, and out-of-range is refused', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const msg = fs.readFileSync(path.join(__dirname, 'fixtures', 'message-game.txt'), 'utf8');
+  const reg = createRegistry({ dataDir: dir, pool, getSource: async () => msg });
+  try {
+    const { record, snapshot } = await reg.start({ gameId: 'n1', channelId: 'c', gistId: 'abcd', startLevelNumber: 1 });
+    assert.equal(record.startLevel, 0);
+    assert.equal(snapshot.levelNumber, 1);
+    await assert.rejects(reg.start({ gameId: 'n2', channelId: 'c', gistId: 'abcd', startLevelNumber: 2 }), (e) => e.name === 'LevelRangeError' && /only has 1 level$/.test(e.message));
+    assert.equal(reg.get('n2'), undefined);
+    assert.equal(pool.has('n2'), false);
+  } finally { await reg.close(); await pool.close(); }
+});

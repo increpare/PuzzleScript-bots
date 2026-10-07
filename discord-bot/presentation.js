@@ -25,7 +25,10 @@ function buildComponents(snapshot, meta) {
 function footerText(record, snapshot) {
   if (record.status === 'dead') return 'stopped: ' + (record.deadReason || 'error');
   if (snapshot.kind === 'finished' || record.status === 'finished') return 'finished';
-  const level = 'Level ' + ((snapshot.levelIndex | 0) + 1) + ' of ' + snapshot.levelCount;
+  // levelNumber/realLevelCount leave out message screens; older snapshots only have the raw entry index
+  const n = snapshot.levelNumber !== undefined ? snapshot.levelNumber : (snapshot.levelIndex | 0) + 1;
+  const m = snapshot.realLevelCount !== undefined ? snapshot.realLevelCount : snapshot.levelCount;
+  const level = 'Level ' + n + ' of ' + m;
   return record.lastMover ? level + ' (Last move: ' + record.lastMover + ')' : level;
 }
 

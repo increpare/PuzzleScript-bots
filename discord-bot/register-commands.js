@@ -8,7 +8,7 @@ async function main() {
     .setName('play')
     .setDescription('Play a PuzzleScript game in this channel')
     .addStringOption((o) => o.setName('game').setDescription('Gist id, play.html link, or gist link').setRequired(true).setAutocomplete(true))
-    .addIntegerOption((o) => o.setName('level').setDescription('Level to start at (1 = first)').setMinValue(1));
+    .addIntegerOption((o) => o.setName('level').setDescription('Level to start at (1 = first; message screens are not counted)').setMinValue(1));
   const rank = new SlashCommandBuilder().setName('rank').setDescription('Show how many levels you have solved and your rank');
   const rest = new REST({ version: '10' }).setToken(cfg.discordToken);
   await rest.put(Routes.applicationGuildCommands(cfg.appId, cfg.guildId), { body: [play.toJSON(), rank.toJSON()] });
