@@ -15,8 +15,9 @@ function pipe() {
 }
 
 function harness(opts = {}) {
-  const clock = { t: 5000 }, procs = [], timers = [], logs = [];
+  const clock = { t: 5000 }, procs = [], timers = [], logs = [], plan = [];
   const spawnFfmpeg = (output) => {
+    if (plan.length) return plan.shift()(output); // a test queues a function to override the next launch
     const p = new EventEmitter();
     p.output = output;
     p.stdin = pipe();
@@ -31,7 +32,7 @@ function harness(opts = {}) {
     setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer: () => {},
   }, opts));
   const at = (ms) => { clock.t = 5000 + ms; enc._tick(); };
-  return { enc, clock, procs, timers, logs, at };
+  return { enc, clock, procs, timers, logs, plan, at };
 }
 
 const FRAME_A = Buffer.alloc(16, 1), FRAME_B = Buffer.alloc(16, 2), FRAME_C = Buffer.alloc(16, 3);
@@ -240,4 +241,78 @@ test('stop ends both pipes, waits for ffmpeg, and does not restart it', async ()
   assert.equal(h.timers.length, 0);
   h.enc._tick();
   assert.equal(h.procs.length, 1);
+});
+
+test('an unchanged frame goes out only on the heartbeat, even though every write reports a full pipe', () => {
+  // A real pipe returns false for a 921,600-byte frame, so every write is followed by a drain.
+  const h = harness();
+  h.enc.setFrame(FRAME_A);
+  h.enc.start();
+  const video = h.procs[0].stdin;
+  video.accept = false;
+  h.at(0);
+  video.emit('drain');
+  for (let ms = 20; ms <= 900; ms += 20) h.at(ms);
+  assert.equal(video.chunks.length, 1, 'the drain does not make the same picture go out again');
+  h.at(1000);
+  assert.equal(video.chunks.length, 2, 'the heartbeat');
+  video.emit('drain');
+  h.enc.setFrame(FRAME_B);
+  h.at(1020); h.at(1040);
+  assert.equal(video.chunks.length, 2, 'a change after the drain still waits out the 50 ms gap');
+  h.at(1060);
+  assert.equal(video.chunks.length, 3);
+  assert.deepEqual([...video.chunks[2]], [...FRAME_B]);
+  video.emit('drain');
+  for (let ms = 1080; ms <= 1980; ms += 20) h.at(ms);
+  assert.equal(video.chunks.length, 3);
+  h.at(2000);
+  assert.equal(video.chunks.length, 4, 'the next heartbeat');
+});
+
+test('a spawn that throws is retried with the same backoff as an exit', () => {
+  const h = harness();
+  h.plan.push(() => { throw new Error('spawn EAGAIN for rtmp://live.twitch.tv/app/SECRETKEY'); });
+  h.plan.push(() => { throw new Error('spawn EAGAIN'); });
+  h.enc.setFrame(FRAME_A);
+  assert.doesNotThrow(() => h.enc.start());
+  assert.equal(h.procs.length, 0);
+  assert.deepEqual(h.timers.map((t) => t.ms), [2000]);
+  assert.ok(h.logs.some((l) => l.includes('EAGAIN') && l.includes('<output>')), h.logs.join('\n'));
+  for (const line of h.logs) assert.ok(!line.includes('SECRETKEY'), line);
+  assert.doesNotThrow(() => h.at(500), 'a tick with no process is harmless');
+  h.clock.t = 5000 + 2000;
+  h.timers[0].fn();
+  assert.deepEqual(h.timers.map((t) => t.ms), [2000, 4000], 'a failed launch doubles the delay too');
+  h.clock.t = 5000 + 6000;
+  h.timers[1].fn();
+  assert.equal(h.procs.length, 1);
+  h.enc._tick();
+  assert.equal(h.procs[0].stdio[3].bytes(), 6615 * 4, 'audio flows once a launch succeeds');
+  assert.deepEqual([...h.procs[0].stdin.chunks[0]], [...FRAME_A]);
+  assert.equal(h.timers.length, 2);
+});
+
+test('a child that comes back without its pipes is a failed launch, restarted once', () => {
+  const h = harness();
+  h.plan.push(() => { // what Node returns under file-descriptor exhaustion: no streams, an error event to follow
+    const p = new EventEmitter();
+    p.stdio = [];
+    p.kill = (signal) => { p.killed = signal; };
+    h.procs.push(p);
+    return p;
+  });
+  assert.doesNotThrow(() => h.enc.start());
+  assert.equal(h.procs.length, 1);
+  assert.deepEqual(h.timers.map((t) => t.ms), [2000]);
+  assert.equal(h.procs[0].killed, 'SIGKILL', 'a half-started child is not left running');
+  assert.doesNotThrow(() => h.at(0), 'a tick with no usable process is harmless');
+  h.procs[0].emit('error', new Error('spawn ffmpeg EMFILE'));
+  h.procs[0].emit('exit', null, null);
+  assert.equal(h.timers.length, 1, 'the late error and exit do not schedule a second restart');
+  h.clock.t = 5000 + 2000;
+  h.timers[0].fn();
+  assert.equal(h.procs.length, 2);
+  h.enc._tick();
+  assert.equal(h.procs[1].stdio[3].bytes(), 6615 * 4);
 });

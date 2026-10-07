@@ -40,15 +40,10 @@ function createEncoder({ output, minFps = 1, readAudio = () => Buffer.alloc(0), 
   function launch() {
     restartTimer = null;
     if (stopped) return;
-    const p = spawnFfmpeg(output);
-    proc = p;
     t0 = now(); sentSamples = 0; lastWrite = -Infinity; nextBeat = 0;
     videoBlocked = false; audioBlocked = false;
     dirty = true;
-    p.stdin.on('error', () => {});    // a dying ffmpeg closes its pipes; the exit handler deals with it
-    p.stdio[3].on('error', () => {});
-    if (p.stderr) p.stderr.on('data', (d) => log('ffmpeg: ' + redact(d).trim()));
-    let done = false;
+    let p = null, done = false;
     const finish = (why) => {
       if (done) return;
       done = true;
@@ -61,8 +56,20 @@ function createEncoder({ output, minFps = 1, readAudio = () => Buffer.alloc(0), 
       restartTimer = setTimer(launch, backoff);
       backoff = Math.min(backoff * 2, MAX_BACKOFF);
     };
-    p.on('error', (e) => finish(e && e.message));
-    p.on('exit', (code, signal) => finish(signal || 'code ' + code));
+    try {
+      p = spawnFfmpeg(output);
+      proc = p;
+      p.on('error', (e) => finish(e && e.message));
+      p.on('exit', (code, signal) => finish(signal || 'code ' + code));
+      // Under resource pressure Node hands back a child with no streams and reports the error later.
+      if (!p.stdin || !p.stdio || !p.stdio[3]) throw new Error('ffmpeg started without its pipes');
+      p.stdin.on('error', () => {});    // a dying ffmpeg closes its pipes; the exit handler deals with it
+      p.stdio[3].on('error', () => {});
+      if (p.stderr) p.stderr.on('data', (d) => log('ffmpeg: ' + redact(d).trim()));
+    } catch (e) {
+      if (p) { try { p.kill('SIGKILL'); } catch (_) { /* nothing left to kill */ } }
+      finish(e && e.message);
+    }
   }
 
   function tick() {
@@ -94,7 +101,7 @@ function createEncoder({ output, minFps = 1, readAudio = () => Buffer.alloc(0), 
       lastWrite = t;
       if (!p.stdin.write(frame)) {
         videoBlocked = true;
-        p.stdin.once('drain', () => { if (proc === p) { videoBlocked = false; dirty = true; } });
+        p.stdin.once('drain', () => { if (proc === p) videoBlocked = false; });
       }
     }
   }
