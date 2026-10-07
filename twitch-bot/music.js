@@ -77,7 +77,12 @@ function createMusic({ index, spawnDecoder = defaultDecoder, random = Math.rando
     stop() {
       stopped = true;
       if (timer !== null) { clearTimer(timer); timer = null; }
-      if (proc) proc.kill();
+      if (proc) {
+        // A decoder blocked writing to a full pipe ignores SIGTERM, so close the pipe as well.
+        const p = proc;
+        p.kill();
+        p.stdout.destroy();
+      }
     },
     // Up to n bytes of audio, always whole sample frames; fewer (or none) when the music has no more yet.
     read(n) {

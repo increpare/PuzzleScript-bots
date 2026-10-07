@@ -19,6 +19,7 @@ function harness(index, random = Math.random) {
     p.stdout.paused = false;
     p.stdout.pause = () => { p.stdout.paused = true; };
     p.stdout.resume = () => { p.stdout.paused = false; };
+    p.stdout.destroy = () => { p.stdout.destroyed = true; };
     p.kill = () => { p.killed = true; p.emit('close'); };
     made.push(p);
     return p;
@@ -128,10 +129,11 @@ test('a decoder that cannot start counts as a failed track', () => {
   assert.equal(h.made.length, 2);
 });
 
-test('stop kills the decoder and nothing else starts', () => {
+test('stop kills the decoder, closes its pipe, and nothing else starts', () => {
   const h = harness(INDEX(3));
   h.music.start();
   h.music.stop();
   assert.equal(h.made[0].killed, true);
+  assert.equal(h.made[0].stdout.destroyed, true, 'a decoder blocked on a full pipe ignores SIGTERM; closing the pipe ends it');
   assert.equal(h.made.length, 1);
 });
