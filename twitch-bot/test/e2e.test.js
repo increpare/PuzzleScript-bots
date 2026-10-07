@@ -24,13 +24,16 @@ test('the whole pipeline produces a playable stream with video and audio', { ski
     getSource: async () => SOKOBAN,
     log: () => {},
   });
-  await app.start();
-  assert.equal(app.session.view().phase, 'playing');
-  const moves = ['right', 'up', 'l', 'd', 'x', 'z'];
-  moves.forEach((text, i) => setTimeout(() => app.session.handleChat({ user: 'tester', text }), 1500 + i * 1300));
-  await wait(12000);
-  assert.ok(app.session.view().moves.length >= 4, 'chat moved the player');
-  await app.stop();
+  try {
+    await app.start();
+    assert.equal(app.session.view().phase, 'playing');
+    const moves = ['right', 'up', 'l', 'd', 'x', 'z'];
+    moves.forEach((text, i) => setTimeout(() => app.session.handleChat({ user: 'tester', text }), 1500 + i * 1300));
+    await wait(12000);
+    assert.ok(app.session.view().moves.length >= 4, 'chat moved the player');
+  } finally {
+    await app.stop(); // whatever failed above, do not leave ffmpeg, the music decoder and the worker running
+  }
 
   const streams = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name,width,height,sample_rate,channels', '-of', 'json', out], { encoding: 'utf8' })).streams;
   const video = streams.find((s) => s.codec_type === 'video'), audio = streams.find((s) => s.codec_type === 'audio');
