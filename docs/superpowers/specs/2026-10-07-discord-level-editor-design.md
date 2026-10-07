@@ -25,6 +25,13 @@ The level text in the post is the export: anyone can copy it into their game.
   per send.
 - The abbreviated form of PuzzleScript discussed alongside this. It is a
   separate project.
+- Editing together. Tweak is solo: each person who presses the pencil edits
+  their own copy. A co-operative editor is a separate project with its own
+  command, `/coop_editor`: the whole PuzzleScript editor, code and all, with
+  several people editing the same source at once. It would be built from
+  PuzzleScript-labs, whose editor is on CodeMirror 6 (main PuzzleScript is on
+  CodeMirror 5), using `@codemirror/collab` with the bot as the authority. It
+  would be for desktop only.
 - Ranks for custom levels. Solving one is recorded on its post and nowhere
   else, so that trivial levels cannot be used to gain rank.
 - Moderation tools. A post names its author, and server moderators can delete
