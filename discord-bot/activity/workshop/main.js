@@ -45,6 +45,15 @@
     }
     const clientId = location.hostname.split('.')[0];
     await sdk.ready();
+    // The Activity is switched off for phones in the developer portal, so Discord should never open
+    // it on one. If it does, say so and share nothing: the editor needs a keyboard and a big screen.
+    if (sdk.platform === 'mobile') {
+      const notice = document.createElement('div');
+      notice.textContent = 'The PuzzleScript workshop is a desktop editor. Open it from Discord on a computer.';
+      notice.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:2em;text-align:center;background:#16161a;color:#eee;font:18px/1.5 sans-serif;';
+      document.body.appendChild(notice);
+      return null;
+    }
     const auth = await sdk.commands.authorize({ client_id: clientId, response_type: 'code', state: '', prompt: 'none', scope: ['identify'] });
     const r = await fetch('api/token', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: auth.code }) });
     const body = await r.json().catch(() => null);
@@ -158,7 +167,7 @@
 
   async function start() {
     session = await signIn();
-    if (session === null) return say('Workshop: this page is not inside Discord, so nothing here is shared.');
+    if (session === null) return say('Workshop: nothing here is shared (this page is not inside Discord on a computer).');
     const first = await api('GET', 'workshop');
     if (first.status !== 200 || !first.body) throw new Error('the shared document could not be fetched');
     const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
