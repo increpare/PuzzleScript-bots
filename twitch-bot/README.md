@@ -62,3 +62,6 @@ With `OUTPUT` set the stream goes to that file (or URL) and no stream key is nee
 - ffmpeg is restarted automatically if it exits, which also covers Twitch
   ending a broadcast after 48 hours.
 - Cost on the Pi 5: about 6% of one core while idle.
+- The stream key is on ffmpeg's command line, so the output of `ps` and the full
+  output of `systemctl --user status puzzlescript-twitch` contain it: do not
+  paste either anywhere. The bot's own log never shows it.

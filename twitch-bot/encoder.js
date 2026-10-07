@@ -1,8 +1,9 @@
 'use strict';
 const { spawn } = require('node:child_process');
+const { StringDecoder } = require('node:string_decoder');
 
 const RATE = 44100, TICK_MS = 20, LEAD_MS = 150, MIN_GAP_MS = 50, STALL_MS = 10000;
-const FIRST_BACKOFF = 2000, MAX_BACKOFF = 60000, HEALTHY_MS = 60000, KILL_AFTER_MS = 3000;
+const FIRST_BACKOFF = 2000, MAX_BACKOFF = 60000, HEALTHY_MS = 60000, KILL_AFTER_MS = 3000, MAX_PARTIAL_LINE = 4096;
 
 // Measured on the Pi: an unchanged frame costs as much to encode as a changed one, so the saving
 // is in sending few frames; one x264 thread is cheaper than the default at these frame rates.
@@ -33,10 +34,14 @@ const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 // Owns the ffmpeg process and is the stream's only clock. Video frames are stamped by ffmpeg as
 // they arrive, so one is written only when the picture changes, plus a heartbeat. Audio is written
 // by sample count: exactly as many samples as real time has advanced, so the two never drift apart.
-function createEncoder({ output, minFps = 1, readAudio = () => Buffer.alloc(0), spawnFfmpeg = defaultSpawn, now = monotonicMs, log = console.log, setTimer = setTimeout, clearTimer = clearTimeout, autoTick = true }) {
+function createEncoder({ output, secrets = [], minFps = 1, readAudio = () => Buffer.alloc(0), spawnFfmpeg = defaultSpawn, now = monotonicMs, log = console.log, setTimer = setTimeout, clearTimer = clearTimeout, autoTick = true }) {
   const fps = Math.max(1, minFps); // the heartbeat and the keyframe interval both follow this, so they cannot disagree
   const beatMs = 1000 / fps;
-  const redact = (text) => String(text).split(output).join('<output>');
+  // The stream key is on ffmpeg's command line, so it can turn up in what ffmpeg prints: as the whole
+  // address, or on its own. The address goes first, so that it shows as one <output>.
+  const needles = [[String(output), '<output>']].concat(secrets.filter(Boolean).map((s) => [String(s), '<secret>'])).filter(([n]) => n !== '');
+  const redact = (text) => needles.reduce((out, [needle, mark]) => out.split(needle).join(mark), String(text));
+  const holdBack = needles.reduce((n, [needle]) => Math.max(n, needle.length - 1), 0);
   let frame = null, dirty = false;
   let proc = null, t0 = 0, sentSamples = 0, lastWrite = -Infinity, nextBeat = 0;
   let videoBlocked = false, audioBlocked = false, blockedSince = 0;
@@ -49,9 +54,27 @@ function createEncoder({ output, minFps = 1, readAudio = () => Buffer.alloc(0), 
     videoBlocked = false; audioBlocked = false;
     dirty = true;
     let p = null, done = false;
+    // ffmpeg's stderr arrives in chunks that end anywhere, so it is logged a line at a time: the text
+    // after the last newline waits for the rest of its line.
+    const decoder = new StringDecoder('utf8');
+    let partial = '';
+    const logLine = (line) => { const text = redact(line).trim(); if (text) log('ffmpeg: ' + text); };
+    const flush = () => { const rest = partial + decoder.end(); partial = ''; logLine(rest); };
+    const onStderr = (chunk) => {
+      const lines = (partial + decoder.write(chunk)).split(/\r\n|\n|\r/);
+      partial = lines.pop();
+      lines.forEach(logLine);
+      if (partial.length > MAX_PARTIAL_LINE) {
+        // Log all but the tail, which could be the start of a key that the next chunk completes.
+        const safe = redact(partial), cut = Math.max(0, safe.length - holdBack);
+        partial = safe.slice(cut);
+        logLine(safe.slice(0, cut));
+      }
+    };
     const finish = (why) => {
       if (done) return;
       done = true;
+      flush();
       if (proc !== p) return;
       const ran = now() - t0;
       proc = null;
@@ -70,7 +93,7 @@ function createEncoder({ output, minFps = 1, readAudio = () => Buffer.alloc(0), 
       if (!p.stdin || !p.stdio || !p.stdio[3]) throw new Error('ffmpeg started without its pipes');
       p.stdin.on('error', () => {});    // a dying ffmpeg closes its pipes; the exit handler deals with it
       p.stdio[3].on('error', () => {});
-      if (p.stderr) p.stderr.on('data', (d) => log('ffmpeg: ' + redact(d).trim()));
+      if (p.stderr) { p.stderr.on('data', onStderr); p.stderr.on('close', flush); }
     } catch (e) {
       if (p) { try { p.kill('SIGKILL'); } catch (_) { /* nothing left to kill */ } }
       finish(e && e.message);

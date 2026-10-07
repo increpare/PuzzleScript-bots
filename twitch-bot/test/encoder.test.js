@@ -276,6 +276,67 @@ test('the stream key never reaches the log', () => {
   assert.ok(h.logs.some((l) => l.includes('<output>')));
 });
 
+test('an address split across two stderr chunks is redacted and logged as one line', () => {
+  const h = harness();
+  h.enc.start();
+  const err = h.procs[0].stderr;
+  err.emit('data', Buffer.from('Failed to open rtmp://live.twitch.tv/app/SEC'));
+  assert.equal(h.logs.length, 0, 'half a line is not logged yet');
+  err.emit('data', Buffer.from('RETKEY: Connection refused\n'));
+  assert.deepEqual(h.logs, ['ffmpeg: Failed to open <output>: Connection refused']);
+});
+
+test('a line that holds only the bare key is redacted', () => {
+  const h = harness({ secrets: ['SECRETKEY', ''] });
+  h.enc.start();
+  h.procs[0].stderr.emit('data', Buffer.from('bad stream name SECRETKEY, try again\n'));
+  h.procs[0].stderr.emit('data', Buffer.from('Failed to open rtmp://live.twitch.tv/app/SECRETKEY\n'));
+  h.procs[0].emit('error', new Error('could not use SECRETKEY'));
+  assert.deepEqual(h.logs.slice(0, 2), ['ffmpeg: bad stream name <secret>, try again', 'ffmpeg: Failed to open <output>']);
+  assert.ok(h.logs.some((l) => l.includes('could not use <secret>')), 'the exit reason too');
+  for (const line of h.logs) assert.ok(!line.includes('SECRETKEY'), line);
+});
+
+test('a key broken across chunks, with no address around it, is redacted', () => {
+  const h = harness({ secrets: ['SECRETKEY'] });
+  h.enc.start();
+  h.procs[0].stderr.emit('data', Buffer.from('bad stream name SECR'));
+  h.procs[0].stderr.emit('data', Buffer.from('ETKEY\n'));
+  assert.deepEqual(h.logs, ['ffmpeg: bad stream name <secret>']);
+});
+
+test('ffmpeg output is logged a line at a time, and the last partial line when it exits', () => {
+  const h = harness();
+  h.enc.start();
+  const err = h.procs[0].stderr;
+  err.emit('data', Buffer.from('first line\nsecond line\n\n  \nthird, no newline yet'));
+  assert.deepEqual(h.logs, ['ffmpeg: first line', 'ffmpeg: second line'], 'blank lines are skipped and the partial line waits');
+  err.emit('data', Buffer.from(' ... now done\r\nfourth'));
+  assert.deepEqual(h.logs.slice(2), ['ffmpeg: third, no newline yet ... now done']);
+  h.procs[0].emit('exit', 1, null);
+  assert.equal(h.logs[3], 'ffmpeg: fourth', 'whatever remains is logged when the process finishes');
+  assert.ok(h.logs[4].startsWith('ffmpeg stopped'));
+  assert.equal(h.logs.length, 5);
+  h.timers[0].fn();
+  h.procs[1].stderr.emit('data', Buffer.from('new process\n'));
+  assert.equal(h.logs[5], 'ffmpeg: new process', 'the next process starts with no leftover text');
+});
+
+test('a partial line that never ends is flushed redacted, without splitting a key at the cut', () => {
+  const h = harness({ secrets: ['SECRETKEY'] });
+  h.enc.start();
+  const err = h.procs[0].stderr;
+  err.emit('data', Buffer.from('x'.repeat(4000)));
+  assert.equal(h.logs.length, 0);
+  err.emit('data', Buffer.from('y'.repeat(2000) + 'SECRE'));
+  assert.ok(h.logs.length >= 1, 'a line past 4096 characters is flushed');
+  err.emit('data', Buffer.from('TKEY and more\n'));
+  for (const line of h.logs) assert.ok(!line.includes('SECRE'), line.slice(-60));
+  assert.ok(h.logs[h.logs.length - 1].includes('<secret> and more'));
+  const text = h.logs.map((l) => l.replace(/^ffmpeg: /, '')).join('');
+  assert.equal(text.replace(/[^xy]/g, '').length, 6000, 'nothing but the key was lost');
+});
+
 test('stop ends both pipes, waits for ffmpeg, and does not restart it', async () => {
   const h = harness();
   h.enc.start();

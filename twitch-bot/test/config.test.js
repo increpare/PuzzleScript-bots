@@ -29,6 +29,12 @@ test('OUTPUT replaces the Twitch address and makes the key optional', () => {
   assert.equal(cfg.output, '/tmp/x.flv');
 });
 
+test('the stream key is returned on its own, or null when there is none', () => {
+  assert.equal(loadConfig(envFile('TWITCH_CHANNEL=c\nTWITCH_STREAM_KEY=live_123\nGITHUB_TOKEN=gh\n'), {}).streamKey, 'live_123');
+  assert.equal(loadConfig(envFile('TWITCH_CHANNEL=c\nGITHUB_TOKEN=gh\nOUTPUT=/tmp/x.flv\n'), {}).streamKey, null);
+  assert.equal(loadConfig(envFile('TWITCH_CHANNEL=c\nGITHUB_TOKEN=gh\nOUTPUT=/tmp/x.flv\n'), { TWITCH_STREAM_KEY: 'from_env' }).streamKey, 'from_env');
+});
+
 test('names the missing keys', () => {
   assert.throws(() => loadConfig(envFile('GITHUB_TOKEN=gh\n'), {}), /missing config: TWITCH_CHANNEL, TWITCH_STREAM_KEY/);
 });

@@ -30,7 +30,7 @@ function createApp({ cfg, gallery, getSource, log = console.log }) {
   };
 
   music = createMusic({ index, onTrack: refresh, log });
-  encoder = createEncoder({ output: cfg.output, minFps: cfg.minFps, readAudio: music.read, log });
+  encoder = createEncoder({ output: cfg.output, secrets: [cfg.streamKey].filter(Boolean), minFps: cfg.minFps, readAudio: music.read, log });
   session = createSession({ pool, getSource, rotation, onChange: refresh, log });
 
   return {
