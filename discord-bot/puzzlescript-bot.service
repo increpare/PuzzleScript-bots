@@ -4,7 +4,9 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=%h/puzzlescript-bot/discord-bot
-ExecStart=/usr/bin/node bot.js
+# node may be in the home directory (the server, which has no root) or system-wide
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env node bot.js
 Restart=on-failure
 RestartSec=5
 Environment=NODE_ENV=production

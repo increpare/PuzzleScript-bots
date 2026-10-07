@@ -8,7 +8,8 @@ channel can press them. Realtime games are not supported.
 
 The bot loads the engine from `../puzzlescript/src/js`, the PuzzleScript
 submodule at the root of this repository (see the README there). `deploy.sh`
-syncs both to `~/puzzlescript-bot/` on the Pi.
+syncs both to `~/puzzlescript-bot/` on the increpare.com server
+(`locus@95.211.62.202`).
 
 ## Setup (once)
 
@@ -16,10 +17,14 @@ syncs both to `~/puzzlescript-bot/` on the Pi.
    add a Bot, copy the token. Invite it with scopes `bot` and
    `applications.commands` and permissions Send Messages, Attach Files,
    Embed Links, Manage Roles.
-2. On the Pi: `cp .env.example .env` in `~/puzzlescript-bot/discord-bot/` and
-   fill in the four keys. `DISCORD_GUILD_ID` is the server id.
-3. `node register-commands.js` once (on the Pi or locally with the same `.env`).
-4. If the service should survive logout/reboot: `sudo loginctl enable-linger box`.
+2. On the server: `cp .env.example .env` in `~/puzzlescript-bot/discord-bot/` and
+   fill in the keys. `DISCORD_GUILD_ID` is the server id.
+3. `node register-commands.js` once (on the server or locally with the same `.env`).
+4. So that the service survives logout and reboot, as root: `loginctl enable-linger locus`.
+
+Node is installed in `locus`'s home directory (`~/.local/bin/node`), because
+that account has no root. In a shell there, put it on the path first:
+`export PATH="$HOME/.local/bin:$PATH"`.
 
 Typing `/play` suggests games from the puzzlescript.net gallery; any gist id or play link also works.
 
