@@ -16,6 +16,7 @@ const STEP_CAP = 1000;
 const MAX_FRAMES = 300;
 const MAX_CAPTURE_BYTES = 16 * 1024 * 1024;
 const DEFAULT_AGAIN_INTERVAL_MS = 150; // the engine's own default
+const REPLAY_BUDGET_SCALE = 3;
 
 class CompileError extends Error {}
 class EngineError extends Error {}
@@ -173,8 +174,8 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
   let pending = null;
   let lastFrames = null;
 
-  function begin(capture) {
-    call = { deadline: now() + totalMs, capture: capture ? { list: [], bytes: 0, ok: true } : null };
+  function begin(capture, budgetScale = 1) {
+    call = { deadline: now() + totalMs * budgetScale, capture: capture ? { list: [], bytes: 0, ok: true } : null };
     lastFrames = null;
   }
 
@@ -445,7 +446,14 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
     return f;
   }
 
-  function replay(actions) { for (const a of actions) input(a); }
+  // Rebuilding a game from its input log gets a longer budget than a live move: every input in the
+  // log was within budget when it was made, and a busy moment must not make a game impossible to resume.
+  function replay(actions) {
+    for (const a of actions) {
+      begin(false, REPLAY_BUDGET_SCALE);
+      try { doInput(a); } finally { end(); }
+    }
+  }
 
   return {
     load,

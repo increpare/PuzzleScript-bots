@@ -188,3 +188,16 @@ test('captured frames carry what is needed to draw them without the final snapsh
   assert.equal(frames.objectCount, Object.keys(snap.sprites).length);
   host.dispose();
 });
+
+test('replaying the input log gets three times the budget of a live move', () => {
+  let t = 0;
+  const host = createHost({ totalMs: 10, now: () => (t += 3) });
+  host.load(SLIDE, 'seed', 0);
+  assert.throws(() => host.input('right'), MoveTooLongError);
+  host.dispose();
+  const again = createHost({ totalMs: 10, now: () => (t += 3) });
+  again.load(SLIDE, 'seed', 0);
+  again.replay(['right']);
+  assert.equal(findX(again.snapshot(), '#b2dcef'), 7);
+  again.dispose();
+});

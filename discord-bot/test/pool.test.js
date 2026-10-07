@@ -83,3 +83,54 @@ test('tiles returns the frame sprites through a worker', async () => {
     assert.throws(() => pool.tiles('nope'), (e) => e.name === 'NoGameError');
   } finally { await pool.close(); }
 });
+
+const SLIDE = fs.readFileSync(path.join(__dirname, 'fixtures', 'again-slide.txt'), 'utf8');
+
+test('a long job made of quick steps outlives the per-step limit', async () => {
+  const pool = createPool({ size: 1, inputMs: 400 });
+  try {
+    await pool.load('a', SOKOBAN, 'seed', 0);
+    const t0 = Date.now();
+    await pool._call('a', '__steps', { count: 16, ms: 50 }, 400); // 800 ms of work, never 400 ms without progress
+    assert.ok(Date.now() - t0 >= 700);
+    assert.equal(pool.has('a'), true, 'the game was not evicted');
+  } finally { await pool.close(); }
+});
+
+test('play makes a move and returns the new picture, with an animation when the move ran on', async () => {
+  const pool = createPool({ size: 1 });
+  try {
+    await pool.load('s', SLIDE, 'seed', 0);
+    const r = await pool.play('s', 'right', { animate: true });
+    assert.equal(r.applied, true);
+    assert.equal(r.snapshot.kind, 'level');
+    assert.equal(Buffer.from(r.gif).toString('latin1', 0, 6), 'GIF89a');
+    const plain = await pool.play('s', 'left', { animate: true });
+    assert.equal(plain.applied, true);
+    assert.equal(plain.gif, null, 'a single turn has no animation');
+    const ignored = await pool.play('s', 'continue', { animate: true });
+    assert.deepEqual([ignored.applied, ignored.gif], [false, null]);
+  } finally { await pool.close(); }
+});
+
+test('play without animate returns no animation', async () => {
+  const pool = createPool({ size: 1 });
+  try {
+    await pool.load('s', SLIDE, 'seed', 0);
+    const r = await pool.play('s', 'right');
+    assert.deepEqual([r.applied, r.gif], [true, null]);
+  } finally { await pool.close(); }
+});
+
+test('a move over the time budget is refused without killing the worker, and its half-played game is discarded', async () => {
+  const evicted = [];
+  const pool = createPool({ size: 1, totalMs: -1, onEvicted: (ids) => evicted.push(...ids) });
+  try {
+    await pool.load('slow', SLIDE, 'seed', 0);
+    await pool.load('other', SOKOBAN, 'seed', 0);
+    await assert.rejects(pool.play('slow', 'right'), (e) => e.name === 'MoveTooLongError');
+    assert.equal((await pool.snapshot('other')).kind, 'level', 'the other game on the worker is untouched');
+    assert.deepEqual(evicted, []);
+    await assert.rejects(pool.play('slow', 'left'), (e) => e.name === 'NoGameError');
+  } finally { await pool.close(); }
+});

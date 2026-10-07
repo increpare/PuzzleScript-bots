@@ -2,7 +2,12 @@
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
 
-function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = () => {} } = {}) {
+// compileMs: how long a game may take to compile.
+// inputMs:   how long a worker may go without finishing a turn of the engine. A job that keeps making
+//            progress is not stopped by this limit; one stuck inside a single turn is.
+// totalMs:   how long one move's whole chain of again turns may take. The game checks this itself
+//            between turns and refuses the move, which leaves the worker and its other games alone.
+function createPool({ size = 2, compileMs = 10000, inputMs = 3000, totalMs = 20000, onEvicted = () => {} } = {}) {
   // entry: {worker, queue: item[], inflight: item|null, games: Set}
   // item:  {id, gameId, op, args, deadlineMs, resolve, reject, timer}
   const evictionListeners = [onEvicted];
@@ -13,10 +18,11 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = (
   let closed = false;
 
   function spawn() {
-    const entry = { worker: new Worker(path.join(__dirname, 'worker.js'), { resourceLimits: { maxOldGenerationSizeMb: 512 } }), queue: [], inflight: null, games: new Set() };
+    const entry = { worker: new Worker(path.join(__dirname, 'worker.js'), { workerData: { totalMs }, resourceLimits: { maxOldGenerationSizeMb: 512 } }), queue: [], inflight: null, games: new Set() };
     entry.worker.on('message', (msg) => {
       const item = entry.inflight;
       if (!item || item.id !== msg.id) return;
+      if (msg.progress) { arm(entry, item); return; } // still working: start the wait again
       clearTimeout(item.timer);
       entry.inflight = null;
       if (msg.ok) item.resolve(msg.result);
@@ -71,10 +77,10 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = (
 
   for (let i = 0; i < size; i++) workers.push(spawn());
 
-  function pump(entry) {
-    if (entry.inflight !== null || entry.queue.length === 0 || workers.indexOf(entry) === -1) return;
-    const item = entry.queue.shift();
-    entry.inflight = item;
+  // Start (or restart) the wait for the job in flight. If the worker stays silent for the whole
+  // wait it is stuck, and the only way to stop it is to end the worker.
+  function arm(entry, item) {
+    clearTimeout(item.timer);
     item.timer = setTimeout(() => {
       entry.inflight = null;
       entry.games.delete(item.gameId);
@@ -83,6 +89,13 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = (
       item.reject(Object.assign(new Error('timeout'), { name: 'TimeoutError' }));
       kill(entry, Object.assign(new Error('worker evicted'), { name: 'EvictedError' }));
     }, item.deadlineMs);
+  }
+
+  function pump(entry) {
+    if (entry.inflight !== null || entry.queue.length === 0 || workers.indexOf(entry) === -1) return;
+    const item = entry.queue.shift();
+    entry.inflight = item;
+    arm(entry, item);
     entry.worker.postMessage({ id: item.id, op: item.op, gameId: item.gameId, args: item.args });
   }
 
@@ -113,10 +126,11 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, onEvicted = (
         throw e;
       }
     },
-    apply(gameId, actions) {
-      return call(entryFor(gameId), gameId, 'apply', { actions }, inputMs * Math.max(1, actions.length));
-    },
+    apply(gameId, actions) { return call(entryFor(gameId), gameId, 'apply', { actions }, inputMs); },
     input(gameId, action) { return call(entryFor(gameId), gameId, 'input', { action }, inputMs); },
+    // {applied, snapshot, gif}: one move, the picture it leaves, and with animate an animation of its
+    // again turns (null when the move took a single turn or the animation could not be made)
+    play(gameId, action, { animate = false } = {}) { return call(entryFor(gameId), gameId, 'play', { action, animate }, inputMs); },
     snapshot(gameId) { return call(entryFor(gameId), gameId, 'snapshot', {}, inputMs); },
     tiles(gameId) { return call(entryFor(gameId), gameId, 'tiles', {}, inputMs); },
     onEvicted(fn) { evictionListeners.push(fn); },
