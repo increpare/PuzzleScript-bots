@@ -1,0 +1,13 @@
+[Unit]
+Description=Twitch plays PuzzleScript
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/puzzlescript-twitch/twitch-bot
+ExecStart=/usr/bin/node main.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target
