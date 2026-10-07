@@ -2928,3 +2928,49 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - [ ] **Step 6: Hand over**
 
 Report to the user: what was built, the test results from Step 4 (with counts), and that going live is theirs to do by following "Going live" in `twitch-bot/README.md`, because it needs their stream key. List the two things to watch on the first stream from the README.
+
+---
+
+## What changed during execution
+
+The code blocks above are the plan as written. The tasks were reviewed one by
+one and the branch as a whole, and these parts of the final code differ from
+them. The test counts quoted in the tasks are therefore out of date: the
+finished suites are 129 tests in `twitch-bot/` and 78 in `discord-bot/`.
+
+- **Commit trailers** name the model that made each commit, not the literal
+  `Claude Opus 5.5`.
+- **Task 4, rotation test:** "plays every game once before any repeats"
+  called `advance()` once per comparison and failed about half the time. It
+  now advances once.
+- **Task 5, session:** a failed write of progress or of the game order is
+  logged and play continues, and a switch always ends in `playing` or
+  `waiting`. As planned, one failed write could freeze the session in
+  `loading` or abandon a healthy game.
+- **Task 7, music:** `stop()` also closes the decoder's pipe (a decoder
+  paused on a full pipe ignored the signal and kept the process alive). A
+  decoder that cannot start, has no output pipe, or produces nothing for
+  10 s counts as a failed track. `index-music.js` refuses to write an empty
+  index.
+- **Task 8, encoder:**
+  - The video drain handler no longer marks the picture as changed. As
+    planned, a real 921,600-byte frame always backs the pipe up, so the same
+    frame would have been re-sent about 16 times a second.
+  - A launch that throws or returns a child without pipes goes through the
+    restart backoff.
+  - Keyframes are spaced by frame count (`-g max(2, floor(2 × minFps))`)
+    instead of `-force_key_frames expr:gte(t,n_forced*2-0.1)`, and `MIN_FPS`
+    is kept between 1 and 20. The time rule depended on ffmpeg's start-up
+    delay and let the gap reach 2.8 s in the end-to-end test.
+  - ffmpeg is restarted if the system clock steps by more than a second.
+  - Log lines are buffered by line and the stream key itself is redacted, as
+    well as the output address.
+- **Task 9, wiring:** shutdown has a try/catch and an 8-second deadline; the
+  end-to-end test stops the app and removes its temporary folder even when it
+  fails.
+- **After Task 10:** `master` was merged in. Its snapshots carry level
+  numbers that leave out message screens, and the frame now shows those.
+  Commands padded with invisible characters are accepted. The chat reconnect
+  delay resets only after a connection has lasted 30 s. `deploy.sh` prints
+  the journal when the service fails to start.
+

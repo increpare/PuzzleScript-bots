@@ -1,7 +1,7 @@
 # Twitch plays PuzzleScript — design
 
 Date: 2026-10-07
-Status: approved in conversation, pending written review
+Status: approved; updated 2026-10-07 to match what was built (see the plan's last section for what changed and why)
 
 ## Goal
 
@@ -42,6 +42,12 @@ Taken on the Pi, encoding to a null output or a local file, not to Twitch.
   keyframes fell every 1.97–2.00 s, and the audio had no gaps. Output left
   ffmpeg in bursts up to 1 s apart, because it holds audio until the next
   video frame arrives.
+- The same run with keyframes spaced by frame count (one every second frame
+  at 1 fps) used 6.5% of one core, with keyframes 0.30–2.00 s apart.
+- With a move on every frame, a keyframe on every second frame costs about
+  15% more CPU per frame than one every 2 s (15.2 vs 13.2 ms at 10 moves a
+  second) and four to six times the video bitrate (383 vs 84 kbit/s at 10 a
+  second, 695 vs 112 at 20), still far below the 2500 kbit/s cap.
 
 ## Components
 
@@ -77,7 +83,9 @@ ordinary chat never moves the player.
 | restart | `restart` only (it wipes the level) |
 | vote to skip the game | `!skip` |
 
-A single leading `!` is allowed on input commands (`!up`).
+A single leading `!` is allowed on input commands (`!up`). Invisible format
+characters are removed first, because some chat clients add them so that a
+viewer can send the same message twice.
 
 ### `chat.js` — Twitch chat, read-only
 
@@ -86,8 +94,8 @@ A TLS connection to `irc.chat.twitch.tv:6697` logged in anonymously
 this login when tried on 2026-10-07. It answers `PING`, parses
 `PRIVMSG` lines into `{user, text}` where `user` is the login name (always
 ASCII, so it renders in the engine font), and reconnects with backoff
-(1 s doubling to 30 s) on close, error or a server `RECONNECT`. No Twitch
-token is needed.
+(1 s doubling to 30 s, reset once a connection has lasted 30 s) on close,
+error or a server `RECONNECT`. No Twitch token is needed.
 
 ### `rotation.js` — which game is next
 
@@ -122,6 +130,9 @@ limit 3 s, as in the Discord bot) and everything chat does to it.
   (rounded up) of the logins that had a command applied in the last
   10 minutes, and never less than 1. Votes clear when the game changes.
 - **Progress**: whenever the level index increases, it is saved.
+- **Disk trouble**: if saving progress or the game order fails, it is logged
+  and play continues; a switch that cannot complete ends on the "back soon"
+  screen and is retried after 60 s, never left half-done.
 - A game that throws or times out mid-play is dropped and the rotation
   moves on.
 
@@ -138,7 +149,8 @@ ffmpeg doubles it to 1280×720. The canvas is a 64×36 grid of 10 px tiles
 - **Game window**, 400×300 at (10, 10): `renderLevelRGBA` for a level,
   `renderTextRGBA` for message and finished screens.
 - **Title strip**, under the game: title and author on the left, "level N of
-  M" on the right; below, "music: <track> - <album>".
+  M" on the right, numbered as the Discord bot does (message screens are not
+  counted); below, "music: <track> - <album>".
 - **Side panel**, right: "TWITCH PLAYS" / "PUZZLESCRIPT" at double size; a
   row of the game's background tiles with its player sprite; "last moves"
   with the log, newest first, fading through the greys, each with a 5×5 icon
@@ -164,8 +176,10 @@ applied, the game changes, a vote is cast, or the music track changes.
   plays the same track twice in a row across a reshuffle.
 - One track at a time is decoded by a short-lived ffmpeg to 44.1 kHz stereo
   PCM. About 2 s is buffered; the decoder is paused while the buffer is full.
-- A track that fails to decode is skipped. Without an index the stream runs
-  silent and says so in the log.
+- A track that fails to decode, cannot be started, or produces nothing for
+  10 s is skipped; five failures in a row wait 30 s. Without an index, or
+  with an empty one, the stream runs silent and says so in the log.
+  `index-music.js` refuses to write an index with no tracks.
 
 ### `encoder.js` — the stream
 
@@ -175,21 +189,34 @@ Owns the long-lived ffmpeg process and is the only clock.
   (`-use_wallclock_as_timestamps 1`). A frame is written when the picture
   changes, at most 20 per second (later changes within 50 ms replace the
   pending one), plus a heartbeat every `1 / MIN_FPS` seconds on a fixed grid.
-  `MIN_FPS` defaults to 1.
+  `MIN_FPS` defaults to 1 and is kept between 1 and 20. An unchanged frame is
+  sent only on the heartbeat.
 - **Audio in**: PCM on a second pipe. Every 20 ms the encoder writes exactly
   as many samples as real time has advanced, taking them from `music.js` and
-  filling any shortfall with silence. The audio timeline therefore tracks the
-  wall clock and cannot drift from the video however long the stream runs.
+  filling any shortfall with silence. The audio timeline therefore tracks
+  real time and cannot drift from the video however long the stream runs.
+  The one exception is the system clock being stepped (time sync after a
+  power cut, say), which moves only the video timestamps: the encoder notices
+  a step of more than a second and restarts ffmpeg.
 - **Encode**: scale ×2 nearest-neighbour; x264 `veryfast`, `zerolatency`, one
-  thread, CRF 23 capped at 2500 kbit/s; a keyframe forced every 2 s of stream
-  time; AAC at 160 kbit/s; FLV to `rtmp://live.twitch.tv/app/<key>`.
+  thread, CRF 23 capped at 2500 kbit/s; AAC at 160 kbit/s; FLV to
+  `rtmp://live.twitch.tv/app/<key>`.
+- **Keyframes** are spaced by frame count, one every two seconds' worth of
+  heartbeat frames (`-g 2` at 1 fps), so they are 2 s apart while idle and
+  closer while the picture is changing. A rule based on stream time was
+  tried first and dropped: it depends on how long ffmpeg takes to start,
+  which cannot be known, and it let the gap reach 2.8 s.
 - **Stalls**: if a pipe backs up, video frames are dropped (the next one
   carries the current picture anyway) rather than queued.
 - **Restart**: when ffmpeg exits for any reason it is restarted after a
   backoff (2 s doubling to 60 s, reset after a minute of healthy running),
   the clocks are reset and the current frame is sent again. This also covers
   Twitch ending a broadcast at its 48-hour limit.
-- The stream key is never logged.
+- A launch that fails (ffmpeg missing, or no pipes) goes through the same
+  backoff.
+- The stream key is never logged: ffmpeg's messages are logged line by line
+  with both the output address and the key itself replaced. The key is still
+  on ffmpeg's command line, so `ps` and the full `systemctl status` show it.
 
 ### `main.js`, config, service
 
@@ -202,7 +229,7 @@ Owns the long-lived ffmpeg process and is the only clock.
 | `TWITCH_STREAM_KEY` | stream key; put there by the user |
 | `GITHUB_TOKEN` | for fetching gists |
 | `MUSIC_DIR` | default `/mnt/media/increpare` |
-| `MIN_FPS` | default 1 |
+| `MIN_FPS` | default 1; from 1 to 20 |
 | `OUTPUT` | optional; a file path or URL replacing the Twitch address, for tests |
 | `DATA_DIR` | default `twitch-bot/data` |
 
@@ -240,3 +267,8 @@ These cannot be tested without the user's stream key.
    not, add login with a token.
 3. The 1-second output bursts cause no buffering for viewers. Raising
    `MIN_FPS` shortens them.
+4. After a deliberately wrong stream key, the journal does not contain the
+   key.
+5. After pulling the Pi's power once, the stream comes back with picture and
+   sound in step.
+6. A repeated move sent from a third-party chat client is applied.
