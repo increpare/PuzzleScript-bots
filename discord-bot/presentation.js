@@ -1,17 +1,24 @@
 'use strict';
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, escapeMarkdown } = require('discord.js');
 const { GistError } = require('./gists');
 
-// tweak is not a move: it opens the level editor (see bot.js) and never reaches the game registry.
-const ACTIONS = ['up', 'left', 'down', 'right', 'action', 'undo', 'restart', 'continue', 'tweak'];
-const ACTION_EMOJI = { left: '⬅️', up: '⬆️', down: '⬇️', right: '➡️', action: '✖️', undo: '↩️', restart: '🔄', continue: '▶️', tweak: '✏️' };
+// tweak and again are not moves. tweak opens the level editor and again starts a solved sent level
+// afresh (see bot.js); neither reaches the game registry as an input.
+const ACTIONS = ['up', 'left', 'down', 'right', 'action', 'undo', 'restart', 'continue', 'tweak', 'again'];
+const ACTION_EMOJI = { left: '⬅️', up: '⬆️', down: '⬇️', right: '➡️', action: '✖️', undo: '↩️', restart: '🔄', continue: '▶️', tweak: '✏️', again: '🔁' };
 
 function button(action, style = ButtonStyle.Secondary) {
   return new ButtonBuilder().setCustomId('ps:' + action).setEmoji(ACTION_EMOJI[action]).setStyle(style);
 }
 
-function buildComponents(snapshot, meta, { tweak = false } = {}) {
+// tweak: the level editor is offered here. again: this is a sent level, which can be played again once solved.
+function buildComponents(snapshot, meta, { tweak = false, again = false } = {}) {
   if (snapshot.kind === 'message') return [new ActionRowBuilder().addComponents(button('continue', ButtonStyle.Primary))];
+  if (snapshot.kind === 'finished' && again) {
+    const row = [button('again', ButtonStyle.Primary)];
+    if (tweak) row.push(button('tweak'));
+    return [new ActionRowBuilder().addComponents(...row)];
+  }
   if (snapshot.kind !== 'level') return [];
   const flags = (meta && meta.flags) || {};
   if (snapshot.animating) {
@@ -34,13 +41,23 @@ function buildComponents(snapshot, meta, { tweak = false } = {}) {
   return rows;
 }
 
-function footerText(record, snapshot) {
+// "Solved by Ada, Bob and Cy": at most ten names, then a count of the rest.
+function solvedByText(solvedBy) {
+  const names = (solvedBy || []).map((s) => s.name);
+  if (names.length === 0) return 'Solved';
+  if (names.length === 1) return 'Solved by ' + names[0];
+  if (names.length <= 10) return 'Solved by ' + names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+  return 'Solved by ' + names.slice(0, 10).join(', ') + ' and ' + (names.length - 10) + ' more';
+}
+
+// sent: the sent level the game is running on (a record from the level store), if it is one
+function footerText(record, snapshot, sent) {
   if (record.status === 'dead') return 'stopped: ' + (record.deadReason || 'error');
-  if (snapshot.kind === 'finished' || record.status === 'finished') return 'finished';
+  if (snapshot.kind === 'finished' || record.status === 'finished') return sent ? solvedByText(sent.solvedBy) : 'finished';
   // levelNumber/realLevelCount leave out message screens; older snapshots only have the raw entry index
   const n = snapshot.levelNumber !== undefined ? snapshot.levelNumber : (snapshot.levelIndex | 0) + 1;
   const m = snapshot.realLevelCount !== undefined ? snapshot.realLevelCount : snapshot.levelCount;
-  const level = 'Level ' + n + ' of ' + m;
+  const level = sent ? 'Custom level' : 'Level ' + n + ' of ' + m;
   const text = record.lastMover ? level + ' (Last move: ' + record.lastMover + ')' : level;
   // An again chain is still running: say which buttons get out of it. On a message the only button
   // is continue, which dismisses the message, so there is nothing to explain yet.
@@ -55,12 +72,24 @@ function footerText(record, snapshot) {
   return text + (snapshot.animating === 'more' ? ' · still animating: ' : ' · looping: ') + list;
 }
 
-function buildEmbed({ record, snapshot, attachmentName }) {
+// A level's text goes in the embed as a code block when it is short enough to read there and has
+// nothing in it that would end the block early. Otherwise it is attached as a file (levelFile).
+const fitsInEmbed = (text) => text.length <= 900 && !text.includes('```');
+
+function levelFile(level) {
+  return fitsInEmbed(level.text) ? null : { name: 'level.txt', data: Buffer.from(level.text + '\n') };
+}
+
+// level: the sent level the game is running on (a record from the level store), if it is one
+function buildEmbed({ record, snapshot, attachmentName, level = null }) {
   const meta = record.meta || {};
+  let title = String(meta.title || 'PuzzleScript game');
+  if (level) title += ' — level by ' + escapeMarkdown(String(level.authorName || 'someone'));
   const e = new EmbedBuilder()
-    .setTitle(String(meta.title || 'PuzzleScript game').slice(0, 256))
-    .setFooter({ text: footerText(record, snapshot).slice(0, 2048) });
-  if (meta.author) e.setDescription(('by ' + meta.author).slice(0, 1000));
+    .setTitle(title.slice(0, 256))
+    .setFooter({ text: footerText(record, snapshot, level).slice(0, 2048) });
+  if (level) e.setDescription(fitsInEmbed(level.text) ? '```\n' + level.text + '\n```' : 'Level text attached.');
+  else if (meta.author) e.setDescription(('by ' + meta.author).slice(0, 1000));
   if (record.gistId) e.setURL('https://www.puzzlescript.net/play.html?p=' + record.gistId);
   if (attachmentName) e.setImage('attachment://' + attachmentName);
   return e;
@@ -93,4 +122,4 @@ function parseCustomId(id) {
   return m && ACTIONS.includes(m[1]) ? m[1] : null;
 }
 
-module.exports = { buildComponents, buildEmbed, parseCustomId, userMessage, ACTION_EMOJI };
+module.exports = { buildComponents, buildEmbed, levelFile, parseCustomId, userMessage, ACTION_EMOJI };

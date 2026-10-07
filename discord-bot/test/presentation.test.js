@@ -120,3 +120,54 @@ test('the tweak button joins the control row of a level, only when asked for', (
   assert.deepEqual(ids(buildComponents({ kind: 'level', animating: 'loop' }, meta({}), { tweak: true })), [['ps:undo', 'ps:restart']]);
   assert.equal(parseCustomId('ps:tweak'), 'tweak');
 });
+
+// ---- sent levels ----
+const { levelFile } = require('../presentation');
+
+const sentLevel = (over = {}) => Object.assign({ id: 'aaaaaaaaaa', text: '###\n#p#\n###', authorName: 'Ada', solvedBy: [] }, over);
+const playing = { meta: meta({}), status: 'playing', levelId: 'aaaaaaaaaa' };
+
+test('a sent level is titled with its author and shows its text', () => {
+  const e = buildEmbed({ record: playing, snapshot: { kind: 'level', levelIndex: 0, levelCount: 1 }, attachmentName: 'frame.png', level: sentLevel() }).toJSON();
+  assert.equal(e.title, 'T — level by Ada');
+  assert.equal(e.description, '```\n###\n#p#\n###\n```');
+  assert.equal(e.footer.text, 'Custom level');
+  const moved = buildEmbed({ record: Object.assign({}, playing, { lastMover: 'Bob' }), snapshot: { kind: 'level', levelIndex: 0, levelCount: 1 }, attachmentName: 'frame.png', level: sentLevel() }).toJSON();
+  assert.equal(moved.footer.text, 'Custom level (Last move: Bob)');
+});
+
+test('an author name is shown as text, whatever is in it', () => {
+  const e = buildEmbed({ record: playing, snapshot: { kind: 'level', levelIndex: 0, levelCount: 1 }, attachmentName: null, level: sentLevel({ authorName: '**big** `x`' }) }).toJSON();
+  assert.equal(e.title, 'T — level by \\*\\*big\\*\\* \\`x\\`');
+});
+
+test('a level too long for the embed, or with a code fence in it, is attached instead', () => {
+  const long = sentLevel({ text: Array(20).fill('#'.repeat(60)).join('\n') });
+  assert.equal(buildEmbed({ record: playing, snapshot: { kind: 'level', levelIndex: 0, levelCount: 1 }, attachmentName: null, level: long }).toJSON().description, 'Level text attached.');
+  assert.deepEqual(levelFile(long), { name: 'level.txt', data: Buffer.from(long.text + '\n') });
+  const fenced = sentLevel({ text: '```\n#p#\n###' });
+  assert.equal(buildEmbed({ record: playing, snapshot: { kind: 'level', levelIndex: 0, levelCount: 1 }, attachmentName: null, level: fenced }).toJSON().description, 'Level text attached.');
+  assert.ok(levelFile(fenced));
+  assert.equal(levelFile(sentLevel()), null);
+});
+
+test('a solved level lists who solved it', () => {
+  const done = { meta: meta({}), status: 'finished', levelId: 'aaaaaaaaaa' };
+  const footer = (names) => buildEmbed({ record: done, snapshot: { kind: 'finished', levelIndex: 0, levelCount: 1 }, attachmentName: null, level: sentLevel({ solvedBy: names.map((name, i) => ({ id: String(i), name })) }) }).toJSON().footer.text;
+  assert.equal(footer([]), 'Solved');
+  assert.equal(footer(['Ada']), 'Solved by Ada');
+  assert.equal(footer(['Ada', 'Bob']), 'Solved by Ada and Bob');
+  assert.equal(footer(['Ada', 'Bob', 'Cy']), 'Solved by Ada, Bob and Cy');
+  const many = Array.from({ length: 13 }, (_, i) => 'P' + i);
+  assert.equal(footer(many), 'Solved by P0, P1, P2, P3, P4, P5, P6, P7, P8, P9 and 3 more');
+  const dead = buildEmbed({ record: { meta: meta({}), status: 'dead', deadReason: 'x', levelId: 'aaaaaaaaaa' }, snapshot: { kind: 'level', levelIndex: 0, levelCount: 1 }, attachmentName: null, level: sentLevel() }).toJSON();
+  assert.equal(dead.footer.text, 'stopped: x');
+});
+
+test('a solved level offers playing again, and the pencil where it is allowed; a finished normal game offers nothing', () => {
+  assert.deepEqual(ids(buildComponents({ kind: 'finished' }, meta({}), { again: true })), [['ps:again']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'finished' }, meta({}), { again: true, tweak: true })), [['ps:again', 'ps:tweak']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'finished' }, meta({}), { tweak: true })), []);
+  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({}), { again: true })), [['ps:left', 'ps:up', 'ps:down', 'ps:right', 'ps:action'], ['ps:undo', 'ps:restart']]);
+  assert.equal(parseCustomId('ps:again'), 'again');
+});
