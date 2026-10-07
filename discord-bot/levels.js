@@ -1,5 +1,7 @@
 'use strict';
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const MAX_CHARS = 10_000;
 const MAX_ROWS = 100;
@@ -66,4 +68,73 @@ function splice(source, levelText) {
   return lines.slice(0, end).join('\n') + '\n\n' + levelText + '\n';
 }
 
-module.exports = { checkLevelText, levelId, splice };
+const MAX_SOLVERS = 50;
+
+// Levels that players have sent: one file each. They are people's work, so nothing is ever deleted
+// to make room; when the store is full, new levels are refused.
+function createLevelStore({ dataDir, maxBytes = 5_000_000, now = Date.now }) {
+  const dir = path.join(dataDir, 'levels');
+  fs.mkdirSync(dir, { recursive: true });
+  const fileFor = (id) => path.join(dir, id + '.json');
+  const validId = (id) => /^[0-9a-f]{10}$/.test(String(id));
+
+  let total = 0;
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith('.json')) continue;
+    try { total += fs.statSync(path.join(dir, f)).size; } catch (e) { /* raced with nothing we do */ }
+  }
+
+  function get(id) {
+    if (!validId(id)) return null;
+    try { return JSON.parse(fs.readFileSync(fileFor(id), 'utf8')); } catch (e) { return null; }
+  }
+
+  // before: the size on disk of the record being replaced, 0 for a new one
+  function write(rec, before) {
+    const json = JSON.stringify(rec);
+    const tmp = fileFor(rec.id) + '.tmp';
+    fs.writeFileSync(tmp, json);
+    fs.renameSync(tmp, fileFor(rec.id));
+    total += Buffer.byteLength(json) - before;
+    return rec;
+  }
+
+  function change(id, fn) {
+    const rec = get(id);
+    if (!rec) return null;
+    const before = Buffer.byteLength(JSON.stringify(rec));
+    fn(rec);
+    return write(rec, before);
+  }
+
+  return {
+    get,
+    // The stored record: the one given, or the one already there under that id.
+    add({ id, gistId, baseSourceHash, text, authorId, authorName }) {
+      if (!validId(id)) throw new Error('bad level id');
+      const existing = get(id);
+      if (existing) return existing;
+      const rec = {
+        id, gistId, baseSourceHash, text,
+        authorId: String(authorId), authorName: String(authorName || '').slice(0, 80),
+        createdAt: now(), channelId: null, threadId: null, messageId: null, solvedBy: [],
+      };
+      if (total + Buffer.byteLength(JSON.stringify(rec)) > maxBytes) {
+        throw Object.assign(new Error('the level store is full'), { name: 'LevelStoreFullError' });
+      }
+      return write(rec, 0);
+    },
+    setPost(id, { channelId, threadId, messageId }) {
+      return change(id, (rec) => Object.assign(rec, { channelId, threadId, messageId }));
+    },
+    // A solver is listed once, however often they solve it.
+    addSolver(id, { id: userId, name }) {
+      return change(id, (rec) => {
+        if (rec.solvedBy.length >= MAX_SOLVERS || rec.solvedBy.some((s) => s.id === String(userId))) return;
+        rec.solvedBy.push({ id: String(userId), name: String(name || '').slice(0, 80) });
+      });
+    },
+  };
+}
+
+module.exports = { checkLevelText, levelId, splice, createLevelStore };

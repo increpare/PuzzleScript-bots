@@ -85,3 +85,66 @@ test('every demo game still compiles, to that one level, with its own first leve
   }
   assert.ok(checked >= 90, 'only ' + checked + ' demos were checked');
 });
+
+const os = require('node:os');
+const { createLevelStore } = require('../levels');
+
+const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-levels-'));
+const sample = (over = {}) => Object.assign({ id: 'aaaaaaaaaa', gistId: 'abc', baseSourceHash: 'f'.repeat(64), text: '#P#', authorId: '42', authorName: 'Ada' }, over);
+
+test('a stored level comes back, from this store and from a new one on the same directory', () => {
+  const dir = tmpDir();
+  const store = createLevelStore({ dataDir: dir, now: () => 1000 });
+  const saved = store.add(sample());
+  assert.deepEqual(saved, { id: 'aaaaaaaaaa', gistId: 'abc', baseSourceHash: 'f'.repeat(64), text: '#P#', authorId: '42', authorName: 'Ada', createdAt: 1000, channelId: null, threadId: null, messageId: null, solvedBy: [] });
+  assert.deepEqual(store.get('aaaaaaaaaa'), saved);
+  assert.deepEqual(createLevelStore({ dataDir: dir }).get('aaaaaaaaaa'), saved);
+  assert.equal(store.get('bbbbbbbbbb'), null);
+  for (const bad of ['../../etc', 'AAAAAAAAAA', 'aaaa', '', undefined]) assert.equal(store.get(bad), null);
+});
+
+test('adding a level that is already there changes nothing', () => {
+  const store = createLevelStore({ dataDir: tmpDir(), now: () => 1000 });
+  store.add(sample());
+  const again = store.add(sample({ authorId: '99', authorName: 'Bob' }));
+  assert.equal(again.authorName, 'Ada');
+  assert.equal(store.get('aaaaaaaaaa').authorId, '42');
+});
+
+test('where a level was posted, and who solved it, are kept', () => {
+  const dir = tmpDir();
+  const store = createLevelStore({ dataDir: dir });
+  store.add(sample());
+  store.setPost('aaaaaaaaaa', { channelId: 'c', threadId: 't', messageId: 'm' });
+  store.addSolver('aaaaaaaaaa', { id: '1', name: 'Bob' });
+  store.addSolver('aaaaaaaaaa', { id: '1', name: 'Bob again' });
+  const rec = store.addSolver('aaaaaaaaaa', { id: '2', name: 'x'.repeat(200) });
+  assert.deepEqual(rec.solvedBy.map((s) => s.id), ['1', '2']);
+  assert.equal(rec.solvedBy[0].name, 'Bob');
+  assert.equal(rec.solvedBy[1].name.length, 80);
+  const reread = createLevelStore({ dataDir: dir }).get('aaaaaaaaaa');
+  assert.equal(reread.threadId, 't');
+  assert.equal(reread.messageId, 'm');
+  assert.equal(reread.solvedBy.length, 2);
+  assert.equal(store.addSolver('bbbbbbbbbb', { id: '1', name: 'Bob' }), null);
+  assert.equal(store.setPost('bbbbbbbbbb', { channelId: 'c', threadId: 't', messageId: 'm' }), null);
+});
+
+test('no more than fifty solvers are listed', () => {
+  const store = createLevelStore({ dataDir: tmpDir() });
+  store.add(sample());
+  for (let i = 0; i < 60; i++) store.addSolver('aaaaaaaaaa', { id: String(i), name: 'n' + i });
+  assert.equal(store.get('aaaaaaaaaa').solvedBy.length, 50);
+});
+
+test('a full store refuses new levels and keeps the old ones', () => {
+  const dir = tmpDir();
+  const store = createLevelStore({ dataDir: dir, maxBytes: 700 });
+  store.add(sample({ id: '1111111111' }));
+  store.add(sample({ id: '2222222222' }));
+  assert.throws(() => store.add(sample({ id: '3333333333', text: '#'.repeat(300) })), (e) => e.name === 'LevelStoreFullError');
+  assert.ok(store.get('1111111111'));
+  assert.equal(store.get('3333333333'), null);
+  // a new store on the same directory counts what is already there
+  assert.throws(() => createLevelStore({ dataDir: dir, maxBytes: 700 }).add(sample({ id: '4444444444', text: '#'.repeat(300) })), (e) => e.name === 'LevelStoreFullError');
+});
