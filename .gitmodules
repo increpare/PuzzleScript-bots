@@ -1,0 +1,4 @@
+[submodule "puzzlescript"]
+	path = puzzlescript
+	url = https://github.com/increpare/PuzzleScript.git
+	shallow = true

@@ -6,8 +6,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
 const { createApp } = require('../main');
+const { SRC_DIR } = require('../../discord-bot/engine-src');
 
-const SOKOBAN = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'demo', 'sokoban_basic.txt'), 'utf8');
+const SOKOBAN = fs.readFileSync(path.join(SRC_DIR, 'demo', 'sokoban_basic.txt'), 'utf8');
 const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0 && spawnSync('ffprobe', ['-version']).status === 0;
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

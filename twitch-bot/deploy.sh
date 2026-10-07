@@ -7,10 +7,13 @@ HOST="${PSTWITCH_HOST:-box@192.168.178.69}"
 DEST="${PSTWITCH_DEST:-puzzlescript-twitch}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
+# The engine comes from the puzzlescript submodule, or from the checkout named by PUZZLESCRIPT_DIR.
+PS="${PUZZLESCRIPT_DIR:-$ROOT/puzzlescript}"
+[ -f "$PS/src/js/engine.js" ] || { echo "No engine in $PS/src — run: git submodule update --init" >&2; exit 1; }
 
-ssh "$HOST" "mkdir -p ~/$DEST/src ~/$DEST/discord-bot ~/$DEST/twitch-bot ~/.config/systemd/user"
-rsync -az --delete "$ROOT/src/js/" "$HOST:~/$DEST/src/js/"
-rsync -az "$ROOT/src/games_dat.js" "$HOST:~/$DEST/src/games_dat.js"
+ssh "$HOST" "mkdir -p ~/$DEST/puzzlescript/src ~/$DEST/discord-bot ~/$DEST/twitch-bot ~/.config/systemd/user"
+rsync -az --delete "$PS/src/js/" "$HOST:~/$DEST/puzzlescript/src/js/"
+rsync -az "$PS/src/games_dat.js" "$HOST:~/$DEST/puzzlescript/src/games_dat.js"
 rsync -az --delete --exclude node_modules --exclude data --exclude .env --exclude test "$ROOT/discord-bot/" "$HOST:~/$DEST/discord-bot/"
 rsync -az --delete --exclude node_modules --exclude data --exclude .env "$HERE/" "$HOST:~/$DEST/twitch-bot/"
 ssh "$HOST" "cd ~/$DEST/twitch-bot && cp puzzlescript-twitch.service ~/.config/systemd/user/ && systemctl --user daemon-reload \

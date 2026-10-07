@@ -28,9 +28,10 @@ Twitch itself rejects a message identical to the one the same viewer sent less t
 
 ## Layout
 
-The bot uses the engine in `../src/js` and several modules of `../discord-bot`
-as a library, so it must sit beside copies of both. `deploy.sh` syncs all
-three to `~/puzzlescript-twitch/` on the Pi, separate from the Discord bot.
+The bot uses the engine in `../puzzlescript/src/js` (the PuzzleScript submodule
+at the root of this repository) and several modules of `../discord-bot` as a
+library. `deploy.sh` syncs all three to `~/puzzlescript-twitch/` on the Pi,
+separate from the Discord bot.
 
 ## Going live (once)
 

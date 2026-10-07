@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { encodePNG } = require('./png');
+const { SRC_DIR } = require('./engine-src');
 
 const FRAME_W = 400, FRAME_H = 300;
 const CELL = 5;
@@ -136,7 +137,7 @@ const TERMINAL_W = 33, TERMINAL_H = 11, TEXT_SCALE = 2, GLYPH_W = 5, GLYPH_H = 1
 let glyphs = null;
 function getGlyphs() {
   if (glyphs === null) {
-    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'font.js'), 'utf8');
+    const src = fs.readFileSync(path.join(SRC_DIR, 'js', 'font.js'), 'utf8');
     const sandbox = {};
     vm.runInNewContext(src + '\n;this.__font = font;', sandbox);
     glyphs = {};

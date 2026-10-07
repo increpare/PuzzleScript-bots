@@ -3,8 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
+const { SRC_DIR } = require('./engine-src');
 
-const SRC_DIR = path.join(__dirname, '..', 'src');
 const ENGINE_FILES = [
   'js/storagewrapper.js', 'js/bitvec.js', 'js/level.js', 'js/languageConstants.js',
   'js/globalVariables.js', 'js/debug.js', 'js/font.js', 'js/rng.js', 'js/riffwave.js',

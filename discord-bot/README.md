@@ -6,8 +6,9 @@ channel can press them. Realtime games are not supported.
 
 ## Layout
 
-The bot loads the engine from `../src/js`, so it must sit beside a copy of
-`src/`. `deploy.sh` syncs both to `~/puzzlescript-bot/` on the Pi.
+The bot loads the engine from `../puzzlescript/src/js`, the PuzzleScript
+submodule at the root of this repository (see the README there). `deploy.sh`
+syncs both to `~/puzzlescript-bot/` on the Pi.
 
 ## Setup (once)
 

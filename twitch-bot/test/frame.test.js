@@ -5,9 +5,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createHost } = require('../../discord-bot/engine-host');
 const { renderLevelRGBA } = require('../../discord-bot/renderer');
+const { SRC_DIR } = require('../../discord-bot/engine-src');
 const { composeFrame, WIDTH, HEIGHT } = require('../frame');
 
-const SOKOBAN = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'demo', 'sokoban_basic.txt'), 'utf8');
+const SOKOBAN = fs.readFileSync(path.join(SRC_DIR, 'demo', 'sokoban_basic.txt'), 'utf8');
 const host = createHost();
 const META = host.load(SOKOBAN, 'seed', 0);
 const SNAP = host.snapshot();

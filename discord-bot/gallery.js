@@ -2,10 +2,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { SRC_DIR } = require('./engine-src');
 
 let cached = null;
 
-function loadGallery(filePath = path.join(__dirname, '..', 'src', 'games_dat.js')) {
+function loadGallery(filePath = path.join(SRC_DIR, 'games_dat.js')) {
   if (cached && cached.filePath === filePath) return cached.gallery;
   const src = fs.readFileSync(filePath, 'utf8');
   const sandbox = {};

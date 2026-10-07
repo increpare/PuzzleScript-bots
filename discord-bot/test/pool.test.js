@@ -4,8 +4,9 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createPool } = require('../pool');
+const { SRC_DIR } = require('../engine-src');
 
-const SOKOBAN = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'demo', 'sokoban_basic.txt'), 'utf8');
+const SOKOBAN = fs.readFileSync(path.join(SRC_DIR, 'demo', 'sokoban_basic.txt'), 'utf8');
 
 test('load, input and snapshot through a worker', async () => {
   const pool = createPool({ size: 1 });

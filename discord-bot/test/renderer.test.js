@@ -7,8 +7,9 @@ const path = require('node:path');
 const { createHost } = require('../engine-host');
 const { renderSnapshot, renderLevelRGBA, levelLayout } = require('../renderer');
 const { decodePNG } = require('../png');
+const { SRC_DIR } = require('../engine-src');
 
-const SOKOBAN = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'demo', 'sokoban_basic.txt'), 'utf8');
+const SOKOBAN = fs.readFileSync(path.join(SRC_DIR, 'demo', 'sokoban_basic.txt'), 'utf8');
 
 function px(img, x, y) {
   const i = (y * img.width + x) * 4;
@@ -110,7 +111,7 @@ test('parseHex expands short hex', () => {
 
 test('coincounter renders without magenta fallback pixels', () => {
   const host = createHost();
-  host.load(fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'demo', 'coincounter.txt'), 'utf8'), 'seed', 0);
+  host.load(fs.readFileSync(path.join(SRC_DIR, 'demo', 'coincounter.txt'), 'utf8'), 'seed', 0);
   const img = renderLevelRGBA(host.snapshot());
   for (let i = 0; i < img.rgba.length; i += 4) {
     assert.ok(!(img.rgba[i] === 255 && img.rgba[i + 1] === 0 && img.rgba[i + 2] === 255), 'magenta pixel at ' + i / 4);

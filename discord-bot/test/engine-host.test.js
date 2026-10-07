@@ -4,8 +4,9 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHost, CompileError } = require('../engine-host');
+const { SRC_DIR } = require('../engine-src');
 
-const DEMO = (name) => fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'demo', name), 'utf8');
+const DEMO = (name) => fs.readFileSync(path.join(SRC_DIR, 'demo', name), 'utf8');
 const SOKOBAN = DEMO('sokoban_basic.txt');
 
 test('load returns metadata and flags', () => {
@@ -141,7 +142,7 @@ test('replay is deterministic across level transitions for random games', () => 
 
 test('host matches the engine test harness on recorded sessions', () => {
   // Load testdata.js the same way the harness does: it declares a top-level array.
-  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'tests', 'resources', 'testdata.js'), 'utf8');
+  const src = fs.readFileSync(path.join(SRC_DIR, 'tests', 'resources', 'testdata.js'), 'utf8');
   const sandbox = {};
   require('node:vm').runInNewContext(src + '\n;this.__testdata = testdata;', sandbox);
   const testdata = sandbox.__testdata;

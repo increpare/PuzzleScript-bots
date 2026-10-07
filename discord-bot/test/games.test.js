@@ -6,8 +6,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { createPool } = require('../pool');
 const { createRegistry } = require('../games');
+const { SRC_DIR } = require('../engine-src');
 
-const SOKOBAN = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'demo', 'sokoban_basic.txt'), 'utf8');
+const SOKOBAN = fs.readFileSync(path.join(SRC_DIR, 'demo', 'sokoban_basic.txt'), 'utf8');
 const getSource = async (id) => { if (id === 'sok') return SOKOBAN; throw new Error('unknown gist'); };
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-games-'));
 
