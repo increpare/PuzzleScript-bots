@@ -1,12 +1,16 @@
-// The level in the engine's memory as the text a LEVELS section would hold: one legend glyph per
-// cell. This runs in the engine's own global scope, in the editor page and in the bot's engine
-// host, and uses only what the engine defines (state, level, BitVec, STRIDE_OBJ).
+// A level as the text a LEVELS section would hold: one legend glyph per cell. This runs in the
+// engine's own global scope, in the editor page and in the bot's engine host, and uses only what
+// the engine defines (state, level, BitVec, STRIDE_OBJ).
+//
+// lev: the level to read. Left out, it is the level being played or edited, as it stands. One of
+// state.levels is a level as its author wrote it, before any rules ran on it.
 //
 // The glyph for a cell is chosen the way the engine's own printLevel chooses it (matchGlyph in
 // inputoutput.js, which the bot's host does not load): of the single-character legend names whose
 // objects, background aside, are all in the cell, the one that accounts for the most of it. Where
 // printLevel would print a placeholder for a cell nothing matches, this throws.
-function levelToText() {
+function levelToText(lev) {
+  lev = lev || level;
   var glyphs = [];
   var backgroundMask = state.layerMasks[state.backgroundlayer];
   for (var name in state.glyphDict) {
@@ -21,10 +25,10 @@ function levelToText() {
     glyphs.push({ name: name, mask: mask, bits: bits });
   }
   var rows = [];
-  for (var y = 0; y < level.height; y++) {
+  for (var y = 0; y < lev.height; y++) {
     var row = '';
-    for (var x = 0; x < level.width; x++) {
-      var cell = level.getCell(y + x * level.height);
+    for (var x = 0; x < lev.width; x++) {
+      var cell = lev.getCell(y + x * lev.height);
       var best = null;
       var bestCount = 0;
       for (var g = 0; g < glyphs.length; g++) {

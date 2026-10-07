@@ -36,10 +36,22 @@ test('it reads the level as it stands, not as it started', () => {
   assert.equal(rows[3], '#@.p.#');
 });
 
+test('asked for by index, a level comes back as written, whatever has been played', () => {
+  const host = createHost();
+  const meta = host.load(DEMO('sokoban_basic.txt'), 'seed', 0);
+  host.input('right');
+  assert.equal(host.levelText(0), SOKOBAN_FIRST);
+  assert.notEqual(host.levelText(meta.realLevels[1]), SOKOBAN_FIRST);
+  assert.throws(() => host.levelText(999), /not a level/);
+});
+
 test('the pool hands the text back from a worker', async () => {
   const pool = createPool({ size: 1 });
   try {
     await pool.load('g', DEMO('sokoban_basic.txt'), 'seed', 0);
     assert.equal(await pool.levelText('g'), SOKOBAN_FIRST);
+    await pool.input('g', 'right');
+    assert.notEqual(await pool.levelText('g'), SOKOBAN_FIRST);
+    assert.equal(await pool.levelText('g', { levelIndex: 0 }), SOKOBAN_FIRST);
   } finally { await pool.close(); }
 });

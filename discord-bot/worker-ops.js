@@ -64,7 +64,7 @@ function createOps({ totalMs = Infinity, ping = () => {}, now = Date.now, animat
         return need(gameId).frameTiles();
       }
       case 'levelText': {
-        return need(gameId).levelText();
+        return need(gameId).levelText(args.levelIndex);
       }
       case 'drop': {
         const host = hosts.get(gameId);

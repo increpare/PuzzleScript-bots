@@ -492,8 +492,14 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
     snapshot,
     frameTiles,
     levelString: () => ctx.convertLevelToString(),
-    // the level as it stands, one legend glyph per cell
-    levelText: () => String(ctx.levelToText()),
+    // One legend glyph per cell. With no index: the level being played, as it stands. With the
+    // index of a level: that level as written, before run_rules_on_level_start or any move.
+    levelText(levelIndex) {
+      if (levelIndex === undefined || levelIndex === null) return String(ctx.levelToText());
+      const written = ps.state.levels[levelIndex];
+      if (!written || written.message !== undefined) throw new EngineError('that is not a level');
+      return String(ctx.levelToText(written));
+    },
     dispose() { /* nothing to free; the context is garbage collected */ },
     _ctx: ctx, // test aid only
     _drainAgain: drainAgain,
