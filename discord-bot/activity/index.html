@@ -5,21 +5,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>PuzzleScript level editor</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #111; color: #eee; font: 14px/1.4 system-ui, sans-serif; }
-  #wrap { display: flex; flex-direction: column; height: 100%; }
-  #bar { padding: 8px 8px 0; }
-  #pad { flex: 1; min-height: 120px; margin: 8px; border: 1px solid #666; touch-action: none; outline: none; }
-  #pad:focus { border-color: #9cf; }
-  #log { height: 45%; overflow: auto; margin: 0 8px 8px; padding: 6px; background: #000; white-space: pre-wrap; font: 12px/1.35 ui-monospace, monospace; }
+  html, body { margin: 0; height: 100%; background: #16161a; color: #eee; font: 15px/1.45 system-ui, sans-serif; }
+  main { box-sizing: border-box; display: flex; flex-direction: column; height: 100%; max-width: 46rem; margin: 0 auto; padding: 12px; gap: 8px; }
+  h1 { font-size: 17px; font-weight: 600; margin: 0; }
+  p { margin: 0; }
+  #status { color: #bbb; }
+  #level { flex: 1; min-height: 8rem; box-sizing: border-box; width: 100%; resize: none; padding: 10px; border: 1px solid #555; border-radius: 6px; background: #000; color: #eee; font: 18px/1.15 ui-monospace, Menlo, Consolas, monospace; white-space: pre; overflow: auto; }
+  #level:focus { outline: none; border-color: #9cf; }
+  #actions { display: flex; gap: 8px; }
+  button { font: inherit; padding: 8px 18px; border-radius: 6px; border: 1px solid #666; background: #2a2a31; color: #eee; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #send { background: #4a5ae0; border-color: #4a5ae0; color: #fff; }
+  #result { min-height: 1.45em; }
+  #result.error { color: #ff9c8a; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
-<div id="wrap">
-  <div id="bar">Level editor test page. Click, right-click, drag, tap and type in the box.</div>
-  <div id="pad" tabindex="0"></div>
-  <div id="log"></div>
-</div>
+<main>
+  <h1 id="title">Level editor</h1>
+  <p id="status">Signing in…</p>
+  <textarea id="level" aria-label="The level, one row per line" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" hidden></textarea>
+  <div id="actions" hidden>
+    <button id="send" type="button">Send</button>
+    <button id="reset" type="button">Reset</button>
+    <button id="close" type="button" hidden>Close</button>
+  </div>
+  <p id="result" role="status"></p>
+</main>
 <script src="vendor/embedded-app-sdk.js"></script>
-<script src="spike.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
