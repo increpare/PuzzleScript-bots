@@ -1,6 +1,7 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const { parseTweakChannels } = require('./tweaks');
 
 function parseEnv(text) {
   const out = {};
@@ -21,6 +22,8 @@ function loadConfig(envPath = path.join(__dirname, '.env')) {
   const required = ['DISCORD_TOKEN', 'DISCORD_APP_ID', 'DISCORD_GUILD_ID', 'GITHUB_TOKEN'];
   const missing = required.filter((k) => !env[k]);
   if (missing.length) throw new Error('missing config: ' + missing.join(', ') + ' (see .env.example)');
+  const httpPort = env.HTTP_PORT ? Number(env.HTTP_PORT) : 8787;
+  if (!Number.isInteger(httpPort) || httpPort < 1 || httpPort > 65535) throw new Error('HTTP_PORT must be a port number');
   return {
     discordToken: env.DISCORD_TOKEN,
     appId: env.DISCORD_APP_ID,
@@ -28,6 +31,10 @@ function loadConfig(envPath = path.join(__dirname, '.env')) {
     githubToken: env.GITHUB_TOKEN,
     scoreChannelId: env.SCORE_CHANNEL_ID || null,
     dataDir: env.DATA_DIR || path.join(path.dirname(envPath), 'data'),
+    // The level editor Activity: without the client secret the http server is not started at all.
+    clientSecret: env.DISCORD_CLIENT_SECRET || null,
+    httpPort,
+    tweakChannels: parseTweakChannels(env.TWEAK_CHANNEL_IDS),
   };
 }
 
