@@ -84,6 +84,21 @@ test('the title strip shows title, author, level and music', () => {
   assert.ok(differsOnlyIn(base, withMusic, 10, 335, 410, 350));
 });
 
+test('the level counter follows levelNumber and realLevelCount, falling back to the raw level index', () => {
+  const at = (extra) => composeFrame(view({ snapshot: Object.assign({}, SNAP, { levelIndex: 1, levelCount: 4 }, extra) }));
+  const numbered = at({ levelNumber: 1, realLevelCount: 3 });
+  const other = at({ levelNumber: 2, realLevelCount: 3 });
+  assert.ok(differsOnlyIn(numbered, other, 10, 320, 410, 334), 'a different levelNumber draws a different counter');
+  assert.ok(differsOnlyIn(numbered, at({ levelNumber: 1, realLevelCount: 9 }), 10, 320, 410, 334), 'a different realLevelCount draws a different counter');
+  const legacy = Object.assign({}, SNAP, { levelIndex: 1, levelCount: 4 });
+  delete legacy.levelNumber;
+  delete legacy.realLevelCount;
+  const legacyImg = composeFrame(view({ snapshot: legacy }));
+  assert.ok(same(legacyImg, at({ levelNumber: 2, realLevelCount: 4 })), 'without the fields it counts levelIndex + 1 of levelCount');
+  assert.ok(differsOnlyIn(legacyImg, numbered, 10, 320, 410, 334), 'the numbered counter is not the raw one');
+  assert.ok(same(legacyImg, at({ levelNumber: 0, realLevelCount: 0 })), 'zero counts fall back as well');
+});
+
 test('moves appear in the side panel and nowhere else', () => {
   const base = composeFrame(view());
   const one = composeFrame(view({ moves: [{ action: 'up', user: 'pip' }] }));

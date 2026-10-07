@@ -82,8 +82,13 @@ function composeFrame({ snapshot, tiles, meta, moves = [], votes = { count: 0, n
   blit(img, snapshot.kind === 'level' ? renderLevelRGBA(snapshot) : renderTextRGBA(snapshot), GAME_X, GAME_Y);
 
   // title strip
-  const levelText = snapshot.kind !== 'finished' && snapshot.levelCount > 0
-    ? 'level ' + (Math.min(snapshot.levelIndex, snapshot.levelCount - 1) + 1) + ' of ' + snapshot.levelCount : '';
+  // Players count levels without the message screens. The "back soon" snapshot and older ones
+  // carry no such numbers, so they are counted from the raw level index.
+  const positive = (n) => typeof n === 'number' && n > 0;
+  const numbered = positive(snapshot.levelNumber) && positive(snapshot.realLevelCount);
+  const levelText = snapshot.kind === 'finished' || !(snapshot.levelCount > 0) ? ''
+    : numbered ? 'level ' + snapshot.levelNumber + ' of ' + snapshot.realLevelCount
+      : 'level ' + (Math.min(snapshot.levelIndex, snapshot.levelCount - 1) + 1) + ' of ' + snapshot.levelCount;
   if (levelText) drawText(img, GAME_X + GAME_W - 6 - chars(levelText) * 6, 322, levelText, C.yellow);
   if (meta) {
     const room = Math.floor((GAME_W - 12 - (levelText ? chars(levelText) * 6 + 12 : 0)) / 6);
