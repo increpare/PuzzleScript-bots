@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PuzzleScriptBot privacy policy</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; line-height: 1.55; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.6rem; }
+  h2 { font-size: 1.15rem; margin-top: 2rem; }
+  li { margin-bottom: 0.5rem; }
+  .updated { opacity: 0.7; }
+</style>
+</head>
+<body>
+
+<h1>PuzzleScriptBot privacy policy</h1>
+<p class="updated">Last updated 7 October 2026</p>
+
+<p>PuzzleScriptBot is a Discord bot for playing PuzzleScript games in a channel. It is run by increpare. This page says what the bot keeps about you, and why.</p>
+
+<h2>What the bot keeps</h2>
+<ul>
+  <li><strong>Your score.</strong> Your Discord user id, with a list of the levels you have solved. Each entry is a game's id and a level number. This is what <code>/rank</code> and the rank announcements are worked out from.</li>
+  <li><strong>Games.</strong> For each game: the ids of the message and channel it is in, which game it is, and the moves made in it. The bot does not record who made each move. It does keep the display name of whoever made the most recent move, which is shown under the game as "Last move".</li>
+  <li><strong>Error logs.</strong> Ordinary log entries hold timings and game ids only. When a request to Discord fails, the entry for it can include the ids involved, which may include your user id.</li>
+</ul>
+
+<h2>What the bot does not keep</h2>
+<ul>
+  <li>It does not read or store messages. It only receives the commands and button presses sent to it.</li>
+  <li>It stores nothing about your keyword role. <code>/role</code> changes the role on Discord and nothing more.</li>
+  <li>It never sees your email address or IP address, and takes nothing from your Discord profile beyond the user id and display name described above.</li>
+</ul>
+
+<h2>What other people can see</h2>
+<p>A game, its "Last move" name, and rank announcements are posted in the channel, where everyone in that channel can see them. Replies to <code>/rank</code> and <code>/role</code> are shown only to you.</p>
+
+<h2>Where it is kept, and for how long</h2>
+<ul>
+  <li>Everything is kept on a small computer run by increpare. Nothing is sold, passed on, or used for advertising or analytics.</li>
+  <li>Scores are kept until you ask for them to be removed.</li>
+  <li>Games are kept until newer ones push them out. The bot holds about 1 MB of them, and when that is full it deletes finished games first, then the ones played least recently.</li>
+  <li>Logs are held in the operating system's journal, which discards old entries as it fills.</li>
+</ul>
+
+<h2>Other services</h2>
+<ul>
+  <li><strong>Discord.</strong> Everything you do with the bot goes through Discord, under <a href="https://discord.com/privacy">Discord's own privacy policy</a>.</li>
+  <li><strong>GitHub.</strong> Games are fetched from GitHub by their id. Nothing about you is sent to GitHub.</li>
+</ul>
+
+<h2>Seeing or removing your data</h2>
+<p>You can ask for a copy of what the bot holds about you, or for it to be deleted, by opening an issue at <a href="https://github.com/increpare/PuzzleScript-bots/issues">github.com/increpare/PuzzleScript-bots</a>. You will need to give your Discord user id.</p>
+
+<h2>Changes</h2>
+<p>This page is updated whenever what the bot keeps changes.</p>
+
+<p><a href="puzzlescriptbot_terms.html">Terms of service</a></p>
+
+</body>
+</html>
