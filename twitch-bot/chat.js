@@ -2,7 +2,7 @@
 const tls = require('node:tls');
 
 const HOST = 'irc.chat.twitch.tv';
-const FIRST_DELAY = 1000, MAX_DELAY = 30000, SILENCE_MS = 10 * 60 * 1000;
+const FIRST_DELAY = 1000, MAX_DELAY = 30000, SILENCE_MS = 10 * 60 * 1000, STABLE_MS = 30000;
 
 function parseLine(line) {
   let s = String(line);
@@ -20,7 +20,9 @@ function defaultConnect(onReady) {
 
 // Read-only chat: an anonymous login needs no Twitch account or token.
 function createChat({ channel, onMessage, connect = defaultConnect, setTimer = setTimeout, clearTimer = clearTimeout, random = Math.random, log = console.log }) {
-  let socket = null, timer = null, delay = FIRST_DELAY, closed = false;
+  let socket = null, timer = null, stableTimer = null, delay = FIRST_DELAY, closed = false;
+
+  const clearStable = () => { if (stableTimer !== null) { clearTimer(stableTimer); stableTimer = null; } };
 
   function open() {
     timer = null;
@@ -28,13 +30,16 @@ function createChat({ channel, onMessage, connect = defaultConnect, setTimer = s
     let buffer = '';
     const sock = connect(() => {
       sock.write('PASS SCHMOOPIIE\r\nNICK justinfan' + (10000 + Math.floor(random() * 80000)) + '\r\nJOIN #' + channel + '\r\n');
+      // A server that greets us and then drops us must not be redialled every second for ever, so the
+      // delay starts again from the beginning only after a connection has lasted this long.
+      clearStable();
+      stableTimer = setTimer(() => { stableTimer = null; delay = FIRST_DELAY; }, STABLE_MS);
     });
     socket = sock;
     sock.setEncoding('utf8');
     // Twitch pings every few minutes, so a long silence means the connection is dead.
     sock.setTimeout(SILENCE_MS, () => sock.destroy());
     sock.on('data', (chunk) => {
-      delay = FIRST_DELAY;
       buffer += chunk;
       const lines = buffer.split('\r\n');
       buffer = lines.pop();
@@ -51,6 +56,7 @@ function createChat({ channel, onMessage, connect = defaultConnect, setTimer = s
     sock.on('close', () => {
       if (socket !== sock) return;
       socket = null;
+      clearStable();
       if (closed) return;
       log('chat closed, reconnecting in ' + delay + ' ms');
       timer = setTimer(open, delay);
@@ -62,6 +68,7 @@ function createChat({ channel, onMessage, connect = defaultConnect, setTimer = s
     start() { if (!closed && socket === null && timer === null) open(); },
     close() {
       closed = true;
+      clearStable();
       if (timer !== null) { clearTimer(timer); timer = null; }
       if (socket) socket.destroy();
     },

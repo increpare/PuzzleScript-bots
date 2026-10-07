@@ -66,7 +66,7 @@ test('a handler that throws does not break the connection', () => {
   assert.doesNotThrow(() => sockets[0].emit('data', ':a!a@a PRIVMSG #c :up\r\n'));
 });
 
-test('reconnects with a doubling delay that resets once data arrives', () => {
+test('reconnects with a doubling delay that resets only once a connection has lasted 30 seconds', () => {
   const h = harness();
   h.chat.start();
   h.sockets[0].destroy();
@@ -75,9 +75,48 @@ test('reconnects with a doubling delay that resets once data arrives', () => {
   h.sockets[1].destroy();
   assert.equal(h.timers[1].ms, 2000);
   h.timers[1].fn();
+  h.sockets[2].ready();
+  assert.equal(h.timers[2].ms, 30000, 'a connection is judged by how long it lasts');
   h.sockets[2].emit('data', ':tmi.twitch.tv 001 x :Welcome\r\n');
   h.sockets[2].destroy();
-  assert.equal(h.timers[2].ms, 1000);
+  assert.equal(h.timers[2].cleared, true, 'a connection that closes early is not counted');
+  assert.equal(h.timers[3].ms, 4000, 'data alone does not reset the delay');
+  h.timers[3].fn();
+  h.sockets[3].ready();
+  assert.equal(h.timers[4].ms, 30000);
+  h.timers[4].fn(); // the connection has now lasted 30 seconds
+  h.sockets[3].destroy();
+  assert.equal(h.timers[5].ms, 1000, 'the delay starts again from the beginning');
+  h.timers[5].fn();
+  h.sockets[4].destroy();
+  assert.equal(h.timers[6].ms, 2000);
+});
+
+test('a server that greets and then drops sees the delay keep doubling', () => {
+  const h = harness();
+  h.chat.start();
+  const delays = [];
+  for (let i = 0; i < 8; i++) {
+    const s = h.sockets[i];
+    s.ready();
+    s.emit('data', ':tmi.twitch.tv 001 x :Welcome, GLHF!\r\n');
+    const before = h.timers.length;
+    s.destroy();
+    delays.push(h.timers[h.timers.length - 1].ms);
+    assert.equal(h.timers.length, before + 1);
+    h.timers[h.timers.length - 1].fn();
+  }
+  assert.deepEqual(delays, [1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000]);
+});
+
+test('closing the chat cancels the 30 second timer as well', () => {
+  const h = harness();
+  h.chat.start();
+  h.sockets[0].ready();
+  assert.equal(h.timers.length, 1);
+  h.chat.close();
+  assert.equal(h.timers[0].cleared, true);
+  assert.equal(h.timers.length, 1, 'and nothing is scheduled');
 });
 
 test('the delay never exceeds 30 seconds', () => {

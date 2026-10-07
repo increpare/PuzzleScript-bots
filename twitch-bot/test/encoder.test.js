@@ -57,6 +57,8 @@ test('the keyframe interval is two seconds worth of heartbeat frames', () => {
   const has = (a, ...seq) => a.some((_, i) => seq.every((v, k) => a[i + k] === v));
   assert.ok(has(ffmpegArgs('x', 1), '-g', '2'));
   assert.ok(has(ffmpegArgs('x', 5), '-g', '10'), '5 heartbeats a second for 2 seconds');
+  assert.ok(has(ffmpegArgs('x', 1.25), '-g', '2'), 'a fractional rate rounds down, so the gap cannot pass two seconds: 3 frames at 1.25 a second would be 2.4');
+  assert.ok(has(ffmpegArgs('x', 1.75), '-g', '3'), '4 frames at 1.75 a second would be 2.29 seconds');
   assert.ok(has(ffmpegArgs('x', 0.5), '-g', '2'), 'a group of pictures is never shorter than 2 frames');
   const launches = [];
   const spawnFfmpeg = (output, minFps) => {

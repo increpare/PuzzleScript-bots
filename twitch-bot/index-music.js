@@ -52,14 +52,28 @@ function buildIndex({ root, albums = ALBUMS, probe = probeFile, log = () => {} }
   return { root, tracks };
 }
 
-if (require.main === module) {
-  const { musicDir, dataDir } = loadPaths();
-  const index = buildIndex({ root: musicDir, log: console.log });
+// Writes the index, unless it has no tracks: that means the music folder is empty or not mounted,
+// and an index of nothing would silence the stream and replace a good one.
+function saveIndex({ index, musicDir, dataDir }) {
+  if (index.tracks.length === 0) {
+    return { file: null, message: 'no tracks found in ' + musicDir + ' (is the music folder there and mounted?); the index was not written' };
+  }
   fs.mkdirSync(dataDir, { recursive: true });
   const file = path.join(dataDir, 'music-index.json');
   fs.writeFileSync(file, JSON.stringify(index));
   const hours = index.tracks.reduce((sum, t) => sum + t.seconds, 0) / 3600;
-  console.log('indexed ' + index.tracks.length + ' tracks, ' + hours.toFixed(1) + ' hours -> ' + file);
+  return { file, message: 'indexed ' + index.tracks.length + ' tracks, ' + hours.toFixed(1) + ' hours -> ' + file };
 }
 
-module.exports = { buildIndex, ALBUMS };
+if (require.main === module) {
+  const { musicDir, dataDir } = loadPaths();
+  const index = buildIndex({ root: musicDir, log: console.log });
+  const result = saveIndex({ index, musicDir, dataDir });
+  if (!result.file) {
+    console.error(result.message);
+    process.exit(1);
+  }
+  console.log(result.message);
+}
+
+module.exports = { buildIndex, saveIndex, ALBUMS };

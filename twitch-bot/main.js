@@ -11,14 +11,14 @@ const { createSourceStore } = require('../discord-bot/sources');
 const { createGistStore } = require('../discord-bot/gists');
 const { loadGallery } = require('../discord-bot/gallery');
 
-const SESSION_TICK_MS = 500;
+const SESSION_TICK_MS = 500, SHUTDOWN_MS = 8000;
 
 // Everything except chat and GitHub, which the end-to-end test replaces.
 function createApp({ cfg, gallery, getSource, log = console.log }) {
   const pool = createPool({ size: 1 });
   const rotation = createRotation({ gallery, dataDir: cfg.dataDir });
   const index = loadIndex(cfg.dataDir);
-  if (!index) log('no music index (run: node index-music.js); the stream will be silent');
+  if (!index || index.tracks.length === 0) log('no music index (run: node index-music.js); the stream will be silent');
   let session = null, encoder = null, music = null, ticker = null;
 
   // The picture changes only when the game, the votes or the music change, so that is when it is redrawn.
@@ -61,8 +61,15 @@ async function main() {
   const shutdown = async () => {
     if (stopping) return;
     stopping = true;
-    chat.close();
-    await app.stop();
+    // Whatever goes wrong while stopping, the process ends: systemd would wait for it, then kill it.
+    const deadline = setTimeout(() => { console.error('shutdown took more than ' + SHUTDOWN_MS / 1000 + ' seconds, exiting anyway'); process.exit(1); }, SHUTDOWN_MS);
+    deadline.unref();
+    try {
+      chat.close();
+      await app.stop();
+    } catch (e) {
+      console.error('error while shutting down', e);
+    }
     process.exit(0);
   };
   process.on('SIGINT', shutdown);

@@ -6,6 +6,8 @@ games are skipped. Music is played on shuffle from the album folders on the Pi.
 
 Design: `docs/superpowers/specs/2026-10-07-twitch-plays-puzzlescript-design.md`.
 
+Needs, on the Pi: node 18 or later, and ffmpeg (with libx264) and ffprobe.
+
 ## Chat commands
 
 | Type | To |
@@ -31,22 +33,29 @@ three to `~/puzzlescript-twitch/` on the Pi, separate from the Discord bot.
 
 ## Going live (once)
 
-1. `./deploy.sh` — the first run syncs the files and stops there.
+Steps 1 and 4 run on your own machine, from `twitch-bot/`; steps 2, 3 and 5 run on the Pi.
+
+1. On your machine: `./deploy.sh` — the first run syncs the files and stops there.
 2. On the Pi, in `~/puzzlescript-twitch/twitch-bot/`: `cp .env.example .env`
    and fill in the channel, the stream key and a GitHub token.
-3. `node index-music.js` — lists the tracks into `data/music-index.json`. The
-   music is only read. Run it again only if the album folders change.
-4. `./deploy.sh` again — this time it starts the service.
-5. If the service should survive logout and reboot: `sudo loginctl enable-linger box`.
+3. On the Pi, in the same folder: `node index-music.js` — lists the tracks
+   into `data/music-index.json`. The music is only read. Run it again only if
+   the album folders change. It refuses to write an empty index, so if it
+   finds no tracks, check that the music folder is mounted.
+4. On your machine: `./deploy.sh` again — this time it starts the service
+   (and shows the log if it does not stay up).
+5. On the Pi, if the service should survive logout and reboot: `sudo loginctl enable-linger box`.
 
 ## Check on the first stream
 
 - Twitch accepts the stream and viewers see no buffering. While nothing is
   happening the video is 1 frame a second; if Twitch objects, set `MIN_FPS=5`
   (or 10) in `.env` and restart. Values below 1 are treated as 1.
-- Typing `up` in chat moves the player and your name appears in the log.
+- Typing `up` in chat moves the player and your name appears in the "last moves" list on the stream.
 
 ## Run locally
+
+From the `twitch-bot` folder (`cd twitch-bot`):
 
     npm test                      # the end-to-end test needs ffmpeg
     OUTPUT=/tmp/test.flv TWITCH_CHANNEL=somechannel GITHUB_TOKEN=... node main.js

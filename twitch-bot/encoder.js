@@ -10,7 +10,8 @@ const FIRST_BACKOFF = 2000, MAX_BACKOFF = 60000, HEALTHY_MS = 60000, KILL_AFTER_
 // A keyframe comes every two seconds' worth of heartbeat frames, and more often while the picture
 // is changing. It is counted in frames (-g) because a time-based rule would depend on when ffmpeg's
 // timeline starts relative to this process's clock, which is ffmpeg's start-up delay and not known
-// here. This holds for minFps of 1 or more; createEncoder never uses a lower rate.
+// here. This holds for minFps of 1 or more; createEncoder never uses a lower rate. The count is
+// rounded down so that a fractional rate (1.25) can never stretch the gap past two seconds.
 function ffmpegArgs(output, minFps = 1) {
   return [
     '-hide_banner', '-nostdin', '-loglevel', 'warning',
@@ -19,7 +20,7 @@ function ffmpegArgs(output, minFps = 1) {
     '-thread_queue_size', '512', '-f', 's16le', '-ar', '44100', '-ac', '2', '-i', 'pipe:3',
     '-vf', 'scale=1280:720:flags=neighbor', '-fps_mode', 'vfr',
     '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', '-threads', '1', '-pix_fmt', 'yuv420p',
-    '-crf', '23', '-maxrate', '2500k', '-bufsize', '5000k', '-g', String(Math.max(2, Math.round(minFps * 2))),
+    '-crf', '23', '-maxrate', '2500k', '-bufsize', '5000k', '-g', String(Math.max(2, Math.floor(minFps * 2))),
     '-c:a', 'aac', '-b:a', '160k',
     '-flush_packets', '1', '-f', 'flv', '-y', output,
   ];
