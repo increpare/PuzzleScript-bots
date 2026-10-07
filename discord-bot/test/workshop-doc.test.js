@@ -162,3 +162,13 @@ test('a corrupt saved document is set aside, not loaded and not overwritten', ()
   assert.deepEqual(doc.state(), { doc: '', version: 0 });
   assert.equal(fs.readdirSync(path.join(dir, 'workshop')).some((f) => f.startsWith('doc.json.corrupt-')), true);
 });
+
+test('a nudge answers everyone waiting, with no changes', async () => {
+  const { doc } = make();
+  let got = null;
+  doc.pull(0).promise.then((r) => { got = r; });
+  doc.nudge();
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(got, { updates: [] });
+  assert.equal(doc.waiting(), 0);
+});

@@ -65,9 +65,10 @@ function readJson(req, max = MAX_BODY) {
 //   tweak(uid)        → what that user is about to edit, or null
 //   submit(uid, body) → the outcome of sending a level
 // workshop: the shared document (see workshop-doc.js), when there is a workshop.
+// workshopSaves: the room's save list (see workshop-saves.js).
 // devSession: hand a session to anyone who asks, without Discord. This is for working on the page
 //   on one's own machine and must never be on where the server can be reached by others.
-function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, workshop = null, devSession = false, log = console.error }) {
+function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, workshop = null, workshopSaves = null, devSession = false, log = console.error }) {
   const roots = staticDirs.map((d) => path.resolve(d));
 
   // The signed-in user's id, from the session the token exchange handed the page; null without one.
@@ -126,8 +127,23 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
         const waiting = workshop.pull(Number(url.searchParams.get('version')));
         res.on('close', () => { if (!res.writableEnded) waiting.cancel(); });
         const result = await waiting.promise;
-        if (!res.writableEnded && !res.destroyed) json(res, 200, result);
+        // savesRev lets an editor see that the save list has changed since it last fetched it
+        if (!res.writableEnded && !res.destroyed) json(res, 200, workshopSaves ? Object.assign({ savesRev: workshopSaves.rev() }, result) : result);
         return;
+      }
+      if (workshopSaves && p === '/api/workshop/saves' && req.method === 'GET') return json(res, 200, workshopSaves.get());
+      if (workshopSaves && p === '/api/workshop/saves' && req.method === 'POST') {
+        // a save holds a whole game, like a push that loads one
+        const body = await readJson(req, MAX_PUSH_BODY);
+        try {
+          const before = workshopSaves.rev();
+          const after = workshopSaves.add(body.group, body.entry);
+          if (after.rev !== before) workshop.nudge();
+          return json(res, 200, after);
+        } catch (e) {
+          if (e.name !== 'WorkshopError') throw e;
+          return json(res, 400, { error: e.message });
+        }
       }
       return json(res, 404, { error: 'not found' });
     }

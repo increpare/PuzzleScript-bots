@@ -14,6 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { workshopPage } = require('./workshop-page');
 const { createWorkshopDoc } = require('./workshop-doc');
+const { createWorkshopSaves } = require('./workshop-saves');
 const { tweakAllowed, createPending } = require('./tweaks');
 const { createOAuth } = require('./discord-oauth');
 const { createHttpServer } = require('./http-server');
@@ -100,6 +101,8 @@ async function main() {
   // The document everyone in the workshop edits together. The bot holds it, so it is there
   // whenever anyone opens the room.
   const workshopDoc = workshopHtml ? createWorkshopDoc({ dataDir: cfg.dataDir }) : null;
+  // What the editor's SAVE button and Load dropdown show there: the room's list, not each browser's.
+  const workshopSaves = workshopHtml ? createWorkshopSaves({ dataDir: cfg.dataDir }) : null;
 
   // The Activity's page. Without the client secret it cannot sign anyone in, so it is not served.
   let httpServer = null;
@@ -108,6 +111,7 @@ async function main() {
       staticDirs: workshopHtml ? [path.join(__dirname, 'activity'), labsSrc] : [path.join(__dirname, 'activity')],
       indexHtml: workshopHtml,
       workshop: workshopDoc,
+      workshopSaves,
       // for working on the page on one's own machine; never set on the server
       devSession: process.env.WORKSHOP_DEV === '1',
       oauth: createOAuth({ clientId: cfg.appId, clientSecret: cfg.clientSecret }),

@@ -33,6 +33,33 @@
   const home = document.querySelector('#uppertoolbar a[href="index.html"]');
   if (home) home.removeAttribute('href');
 
+  // ---- the room's save list: what the editor's SAVE button and Load dropdown show ----
+  let savesRev = -1;
+  function showSaves(lists) {
+    savesRev = lists.rev;
+    workshopStorage.setRoomSaves(lists);
+    try { repopulateSaveDropdown(); } catch (e) { /* the editor's toolbar is not up */ }
+  }
+  async function fetchSaves() {
+    const r = await api('GET', 'workshop/saves').catch(() => null);
+    if (r && r.status === 200 && r.body) showSaves(r.body);
+  }
+  function shareSaves(first) {
+    workshopStorage.shareSaves(first, (group, json) => {
+      // The editor has just written its whole list with one new save at the end. Only that save is
+      // sent: the bot adds it to the room's list, which may hold saves this editor has not seen yet.
+      let list;
+      try { list = JSON.parse(json); } catch (e) { return; }
+      const made = list[list.length - 1];
+      if (!made) return;
+      api('POST', 'workshop/saves', { group, entry: { title: String(made.title), text: String(made.text) } }).then((r) => {
+        if (r.status === 200 && r.body) showSaves(r.body);
+        else say('Workshop: that save was not kept (' + ((r.body && r.body.error) || 'the bot did not answer') + ').');
+      }).catch(() => say('Workshop: that save was not kept (the bot could not be reached).'));
+    });
+    showSaves(first);
+  }
+
   async function signIn() {
     let sdk;
     try {
@@ -150,6 +177,8 @@
         // The bot no longer has the changes between this editor's version and its own (it was
         // restarted, or this editor fell a long way behind).
         if (r.body.reset) { await resync(); continue; }
+        // someone has saved: fetch the list afresh
+        if (typeof r.body.savesRev === 'number' && r.body.savesRev !== savesRev) fetchSaves();
         if (r.body.updates.length) {
           view.dispatch(receiveUpdates(view.state, r.body.updates.map((u) => ({ clientID: u.clientID, changes: ChangeSet.fromJSON(u.changes) }))));
         }
@@ -172,8 +201,11 @@
     if (first.status !== 200 || !first.body) throw new Error('the shared document could not be fetched');
     const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
     if (!view) throw new Error('the editor is not there');
+    const saves = await api('GET', 'workshop/saves');
+    if (saves.status !== 200 || !saves.body) throw new Error('the save list could not be fetched');
+    shareSaves(saves.body);
     share(view, first.body);
-    say('Workshop: you are editing the shared document. Everyone here sees your changes as you type.');
+    say('Workshop: you are editing the shared document. Everyone here sees your changes as you type, and SAVE saves for the whole room.');
   }
 
   start().catch((e) => say('Workshop: could not start sharing (' + (e && e.message ? e.message : e) + ').'));

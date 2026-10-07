@@ -11,7 +11,7 @@ const { createSigner } = require('../signing');
 
 const DAY = 24 * 60 * 60 * 1000;
 
-async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, devSession } = {}) {
+async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, workshopSaves, devSession } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-http-'));
   const staticDir = path.join(dir, 'site');
   // a second directory, looked in after the first
@@ -32,6 +32,7 @@ async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, devSes
     staticDirs: [staticDir, otherDir],
     indexHtml,
     workshop,
+    workshopSaves,
     devSession,
     oauth: oauth || { exchange: async (code) => ({ accessToken: 'tok-' + code, user: { id: '42', name: 'n' } }) },
     signer,
@@ -273,4 +274,42 @@ test('a session without Discord is only given out when that has been switched on
   const { session } = await r.json();
   assert.match(on.signer.verify(session).uid, /^dev-/);
   assert.equal((await fetch(on.base + '/api/workshop', { headers: bearer(session) })).status, 200);
+});
+
+test('workshop saves: the list is fetched and added to, and a new save lets waiting editors know', async (t) => {
+  const workshop = fakeWorkshop();
+  let nudges = 0;
+  workshop.nudge = () => { nudges++; };
+  let rev = 4;
+  const added = [];
+  const workshopSaves = {
+    rev: () => rev,
+    get: () => ({ saves: [], autosaves: [], rev }),
+    add(group, entry) {
+      if (group === 'nope') throw new WorkshopError('bad save group');
+      added.push([group, entry]);
+      if (entry.text !== 'same as before') rev++;
+      return { saves: [entry], autosaves: [], rev };
+    },
+  };
+  const { base, signer } = await start(t, { workshop, workshopSaves });
+  assert.equal((await fetch(base + '/api/workshop/saves')).status, 401);
+  const session = signer.sign({ uid: '42' }, DAY);
+  assert.deepEqual(await (await fetch(base + '/api/workshop/saves', { headers: bearer(session) })).json(), { saves: [], autosaves: [], rev: 4 });
+  const r = await jsonPost(base + '/api/workshop/saves', session, { group: 'saves', entry: { title: 'T', text: 'title T' } });
+  assert.deepEqual(await r.json(), { saves: [{ title: 'T', text: 'title T' }], autosaves: [], rev: 5 });
+  assert.equal(nudges, 1);
+  await jsonPost(base + '/api/workshop/saves', session, { group: 'saves', entry: { title: 'T', text: 'same as before' } });
+  assert.equal(nudges, 1); // nothing changed, so nobody is disturbed
+  const bad = await jsonPost(base + '/api/workshop/saves', session, { group: 'nope', entry: {} });
+  assert.equal(bad.status, 400);
+  assert.deepEqual(await bad.json(), { error: 'bad save group' });
+
+  // an answer to a pull says which revision of the save list is current
+  let answered = null;
+  const pending = fetch(base + '/api/workshop/pull?version=3', { headers: bearer(session) }).then((x) => x.json()).then((j) => { answered = j; });
+  while (workshop.pulls.length === 0) await new Promise((x) => setTimeout(x, 5));
+  workshop.pulls[0].answer({ updates: [] });
+  await pending;
+  assert.deepEqual(answered, { savesRev: 5, updates: [] });
 });

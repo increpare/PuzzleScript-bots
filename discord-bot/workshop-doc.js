@@ -119,6 +119,9 @@ function createWorkshopDoc({
     state: () => ({ doc: doc.toString(), version }),
     push,
     pull,
+    // Answers everyone who is waiting, with no changes: for news that is not about the document
+    // (the save list has changed), which they pick up from the answer's other fields.
+    nudge() { for (const w of [...waiters]) w.answer({ updates: [] }); },
     waiting: () => waiters.size,
     close() {
       closed = true;
