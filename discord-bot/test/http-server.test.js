@@ -11,18 +11,26 @@ const { createSigner } = require('../signing');
 
 const DAY = 24 * 60 * 60 * 1000;
 
-async function start(t, { oauth, api, now = () => 0 } = {}) {
+async function start(t, { oauth, api, now = () => 0, indexHtml } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-http-'));
   const staticDir = path.join(dir, 'site');
+  // a second directory, looked in after the first
+  const otherDir = path.join(dir, 'other');
   fs.mkdirSync(path.join(staticDir, 'vendor'), { recursive: true });
+  fs.mkdirSync(path.join(otherDir, 'demo'), { recursive: true });
   fs.writeFileSync(path.join(staticDir, 'index.html'), '<p>hello</p>');
   fs.writeFileSync(path.join(staticDir, 'vendor', 'lib.js'), 'var x = 1;');
-  fs.writeFileSync(path.join(staticDir, 'notes.txt'), 'not a served type');
+  fs.writeFileSync(path.join(staticDir, 'notes.md'), 'not a served type');
+  fs.writeFileSync(path.join(otherDir, 'demo', 'game.txt'), 'title Game');
+  fs.writeFileSync(path.join(otherDir, 'index.html'), '<p>the other index</p>');
+  fs.mkdirSync(path.join(otherDir, 'vendor'), { recursive: true });
+  fs.writeFileSync(path.join(otherDir, 'vendor', 'lib.js'), 'var shadowed = 1;');
   fs.writeFileSync(path.join(dir, 'secret.js'), 'var secret = 1;');
   const signer = createSigner('test key', { now });
   const calls = [];
   const server = createHttpServer({
-    staticDir,
+    staticDirs: [staticDir, otherDir],
+    indexHtml,
     oauth: oauth || { exchange: async (code) => ({ accessToken: 'tok-' + code, user: { id: '42', name: 'n' } }) },
     signer,
     api: api || {
@@ -65,10 +73,29 @@ test('serves the page and its files, with their types', async (t) => {
   assert.equal(await head.text(), '');
 });
 
+test('a file is looked for in each directory in turn, and the first one found is served', async (t) => {
+  const { base } = await start(t);
+  const game = await fetch(base + '/demo/game.txt');
+  assert.equal(game.status, 200);
+  assert.match(game.headers.get('content-type'), /^text\/plain/);
+  assert.equal(await game.text(), 'title Game');
+  assert.equal(await (await fetch(base + '/vendor/lib.js')).text(), 'var x = 1;');
+  assert.equal(await (await fetch(base + '/')).text(), '<p>hello</p>');
+});
+
+test('the front page can be given as text, in place of any index.html', async (t) => {
+  const { base } = await start(t, { indexHtml: '<p>made up</p>' });
+  const index = await fetch(base + '/');
+  assert.match(index.headers.get('content-type'), /^text\/html/);
+  assert.equal(await index.text(), '<p>made up</p>');
+  assert.equal((await fetch(base + '/', { method: 'HEAD' })).status, 200);
+  assert.equal(await (await fetch(base + '/vendor/lib.js')).text(), 'var x = 1;');
+});
+
 test('serves nothing outside the page directory, and no other file types', async (t) => {
   const { base, port } = await start(t);
   assert.equal((await fetch(base + '/missing.js')).status, 404);
-  assert.equal((await fetch(base + '/notes.txt')).status, 404);
+  assert.equal((await fetch(base + '/notes.md')).status, 404);
   assert.equal((await fetch(base + '/vendor')).status, 404);
   for (const p of ['/../secret.js', '/..%2fsecret.js', '/vendor/..%2f..%2fsecret.js', '/%2e%2e/secret.js', '/vendor/%00.js', '/%zz.js']) {
     const r = await rawGet(port, p);

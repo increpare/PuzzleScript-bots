@@ -4,13 +4,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { OAuthError } = require('./discord-oauth');
 
-// Only these are served. Anything else in the page directory is not for the browser.
+// Only these are served. Anything else in the page directories is not for the browser.
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json',
+  '.txt': 'text/plain; charset=utf-8', // the editor's example games
   '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
 };
 const MAX_BODY = 64 * 1024;
 const SESSION_MS = 24 * 60 * 60 * 1000;
@@ -46,12 +53,15 @@ function readJson(req) {
 // The page of the level editor Activity and the api it talks to. It listens on localhost only;
 // Caddy forwards one public path to it, and Discord's proxy reaches that path.
 //
+// staticDirs: where the page's files are. A file is looked for in each in turn.
+// indexHtml: the front page as text, when it is put together by the bot (see workshop-page.js)
+//   and is not a file.
 // signer: signs and checks sessions (see signing.js).
 // api: what the page can ask for once signed in.
 //   tweak(uid)        → what that user is about to edit, or null
 //   submit(uid, body) → the outcome of sending a level
-function createHttpServer({ staticDir, oauth, signer, api, log = console.error }) {
-  const root = path.resolve(staticDir);
+function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, log = console.error }) {
+  const roots = staticDirs.map((d) => path.resolve(d));
 
   // The signed-in user's id, from the session the token exchange handed the page; null without one.
   function sessionUser(req) {
@@ -63,16 +73,27 @@ function createHttpServer({ staticDir, oauth, signer, api, log = console.error }
   function serveStatic(pathname, res, headOnly) {
     let rel;
     try { rel = decodeURIComponent(pathname); } catch (e) { return json(res, 404, { error: 'not found' }); }
+    if (rel === '/' && indexHtml !== null) {
+      const body = Buffer.from(indexHtml);
+      res.writeHead(200, { 'content-type': TYPES['.html'], 'content-length': body.length, 'cache-control': 'no-cache' });
+      return res.end(headOnly ? undefined : body);
+    }
     if (rel.endsWith('/')) rel += 'index.html';
-    const file = path.resolve(root, '.' + rel);
-    const type = TYPES[path.extname(file)];
-    if (rel.includes('\0') || !file.startsWith(root + path.sep) || !type) return json(res, 404, { error: 'not found' });
-    fs.stat(file, (err, st) => {
-      if (err || !st.isFile()) return json(res, 404, { error: 'not found' });
-      res.writeHead(200, { 'content-type': type, 'content-length': st.size, 'cache-control': 'no-cache' });
-      if (headOnly) return res.end();
-      fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
-    });
+    const type = TYPES[path.extname(rel)];
+    if (rel.includes('\0') || !type) return json(res, 404, { error: 'not found' });
+    // the first directory that has the file serves it
+    const tryRoot = (i) => {
+      if (i === roots.length) return json(res, 404, { error: 'not found' });
+      const file = path.resolve(roots[i], '.' + rel);
+      if (!file.startsWith(roots[i] + path.sep)) return json(res, 404, { error: 'not found' });
+      fs.stat(file, (err, st) => {
+        if (err || !st.isFile()) return tryRoot(i + 1);
+        res.writeHead(200, { 'content-type': type, 'content-length': st.size, 'cache-control': 'no-cache' });
+        if (headOnly) return res.end();
+        fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+      });
+    };
+    tryRoot(0);
   }
 
   async function handle(req, res) {

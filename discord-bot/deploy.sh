@@ -9,6 +9,10 @@ ROOT="$(cd "$HERE/.." && pwd)"
 # The engine comes from the puzzlescript submodule, or from the checkout named by PUZZLESCRIPT_DIR.
 PS="${PUZZLESCRIPT_DIR:-$ROOT/puzzlescript}"
 [ -f "$PS/src/js/engine.js" ] || { echo "No engine in $PS/src — run: git submodule update --init" >&2; exit 1; }
+# The workshop's editor is the PuzzleScript-labs one. Labs is too big to be a submodule here, so its
+# editor is copied from a checkout: by default the discord-workshop worktree of the labs checkout
+# beside this repository.
+LABS="${PUZZLESCRIPT_LABS_DIR:-$ROOT/../PuzzleScript-labs/.claude/worktrees/discord-workshop}"
 # Node is installed in the home directory on the server (there is no root there), which a
 # non-login shell does not have on its PATH.
 REMOTE_PATH='export PATH="$HOME/.local/bin:$PATH"'
@@ -17,6 +21,16 @@ ssh "$HOST" "mkdir -p ~/$DEST/puzzlescript/src ~/$DEST/discord-bot ~/.config/sys
 rsync -az --delete "$PS/src/js/" "$HOST:~/$DEST/puzzlescript/src/js/"
 rsync -az "$PS/src/games_dat.js" "$HOST:~/$DEST/puzzlescript/src/games_dat.js"
 rsync -az --delete --exclude node_modules --exclude data --exclude .env "$HERE/" "$HOST:~/$DEST/discord-bot/"
+if [ -f "$LABS/src/editor.html" ]; then
+  # only what the editor page loads: nothing else of labs is put on the server
+  ssh "$HOST" "mkdir -p ~/$DEST/labs/src"
+  rsync -az --delete --delete-excluded \
+    --include='/editor.html' --include='/standalone_inlined.txt' --include='/js/***' --include='/css/***' --include='/images/***' \
+    --include='/demo/***' --include='/fonts/***' --include='/Documentation/' --include='/Documentation/ico/***' \
+    --exclude='*' "$LABS/src/" "$HOST:~/$DEST/labs/src/"
+else
+  echo "no labs editor in $LABS/src: the workshop page is not deployed" >&2
+fi
 ssh "$HOST" "$REMOTE_PATH && cd ~/$DEST/discord-bot && npm ci --omit=dev --no-audit --no-fund \
   && cp puzzlescript-bot.service ~/.config/systemd/user/ \
   && systemctl --user daemon-reload"

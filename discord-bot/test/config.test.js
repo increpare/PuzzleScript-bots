@@ -35,3 +35,17 @@ test('activity settings are optional and have safe defaults', () => {
   fs.writeFileSync(file, base + 'HTTP_PORT=nope\n');
   assert.throws(() => loadConfig(file), /HTTP_PORT/);
 });
+
+test('workshop settings: no channel by default, and labs beside the bot', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-cfg-'));
+  const file = path.join(dir, '.env');
+  const base = 'DISCORD_TOKEN=abc\nDISCORD_APP_ID=1\nDISCORD_GUILD_ID=2\nGITHUB_TOKEN=ghp\n';
+  fs.writeFileSync(file, base);
+  let cfg = loadConfig(file);
+  assert.equal(cfg.workshopChannelId, null);
+  assert.equal(cfg.labsDir, path.join(dir, '..', 'labs'));
+  fs.writeFileSync(file, base + 'WORKSHOP_CHANNEL_ID=555\nLABS_DIR=/somewhere/labs\n');
+  cfg = loadConfig(file);
+  assert.equal(cfg.workshopChannelId, '555');
+  assert.equal(cfg.labsDir, '/somewhere/labs');
+});

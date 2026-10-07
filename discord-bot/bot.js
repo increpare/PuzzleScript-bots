@@ -10,7 +10,9 @@ const { createScores } = require('./scores');
 const { createSourceStore } = require('./sources');
 const { buildComponents, buildEmbed, levelFile, parseCustomId, userMessage } = require('./presentation');
 const { planRoleChange, applyRoleChange } = require('./roles');
+const fs = require('node:fs');
 const path = require('node:path');
+const { workshopPage } = require('./workshop-page');
 const { tweakAllowed, createPending } = require('./tweaks');
 const { createOAuth } = require('./discord-oauth');
 const { createHttpServer } = require('./http-server');
@@ -84,11 +86,22 @@ async function main() {
     },
   };
 
-  // The level editor page. Without the client secret it cannot sign anyone in, so it is not served.
+  // The workshop's page is the PuzzleScript-labs editor with the workshop's scripts added. Labs is
+  // copied beside the bot when it is deployed; without it the Activity is the level editor's page.
+  const labsSrc = path.join(cfg.labsDir, 'src');
+  let workshopHtml = null;
+  try {
+    workshopHtml = workshopPage(fs.readFileSync(path.join(labsSrc, 'editor.html'), 'utf8'));
+  } catch (e) {
+    console.log('no workshop editor:', e.code === 'ENOENT' ? 'there is no labs editor in ' + labsSrc : e.message);
+  }
+
+  // The Activity's page. Without the client secret it cannot sign anyone in, so it is not served.
   let httpServer = null;
   if (cfg.clientSecret) {
     httpServer = createHttpServer({
-      staticDir: path.join(__dirname, 'activity'),
+      staticDirs: workshopHtml ? [path.join(__dirname, 'activity'), labsSrc] : [path.join(__dirname, 'activity')],
+      indexHtml: workshopHtml,
       oauth: createOAuth({ clientId: cfg.appId, clientSecret: cfg.clientSecret }),
       signer,
       api: editorApi,
@@ -117,11 +130,14 @@ async function main() {
       return;
     }
     try {
-      // The app launcher entry Discord adds once Activities are enabled. The editor is opened from
-      // a game, not from there.
+      // The app launcher entry Discord adds once Activities are enabled. In the workshop channel it
+      // opens the shared editor; anywhere else there is nothing for it to open.
       if (interaction.isPrimaryEntryPointCommand()) {
-        const hint = cfg.tweakChannels === '*' ? 'To edit a level, press the pencil button under a game.' : 'The level editor is still being tested and is not open yet.';
-        await interaction.reply({ content: hint, flags: MessageFlags.Ephemeral });
+        if (workshopHtml && cfg.workshopChannelId && interaction.channelId === cfg.workshopChannelId) {
+          await interaction.launchActivity();
+          return;
+        }
+        await interaction.reply({ content: 'The shared PuzzleScript editor is still being tested and is not open yet.', flags: MessageFlags.Ephemeral });
         return;
       }
       if (interaction.isChatInputCommand() && interaction.commandName === 'play') {

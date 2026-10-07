@@ -35,6 +35,10 @@ function loadConfig(envPath = path.join(__dirname, '.env')) {
     clientSecret: env.DISCORD_CLIENT_SECRET || null,
     httpPort,
     tweakChannels: parseTweakChannels(env.TWEAK_CHANNEL_IDS),
+    // The workshop: one channel whose Activity is a shared PuzzleScript editor. The editor is the
+    // PuzzleScript-labs one, copied beside the bot when it is deployed.
+    workshopChannelId: env.WORKSHOP_CHANNEL_ID || null,
+    labsDir: env.LABS_DIR || path.join(path.dirname(envPath), '..', 'labs'),
   };
 }
 
