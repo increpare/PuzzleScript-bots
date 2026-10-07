@@ -13,6 +13,7 @@ const TYPES = {
   '.png': 'image/png',
 };
 const MAX_BODY = 64 * 1024;
+const SESSION_MS = 24 * 60 * 60 * 1000;
 
 // no-cache: Discord's proxy and its clients hold on to files, and a deploy has to show at once.
 function json(res, status, obj) {
@@ -44,8 +45,20 @@ function readJson(req) {
 
 // The page of the level editor Activity and the api it talks to. It listens on localhost only;
 // Caddy forwards one public path to it, and Discord's proxy reaches that path.
-function createHttpServer({ staticDir, oauth, onReport = () => {}, log = console.error }) {
+//
+// signer: signs and checks sessions (see signing.js).
+// api: what the page can ask for once signed in.
+//   tweak(uid)        → what that user is about to edit, or null
+//   submit(uid, body) → the outcome of sending a level
+function createHttpServer({ staticDir, oauth, signer, api, log = console.error }) {
   const root = path.resolve(staticDir);
+
+  // The signed-in user's id, from the session the token exchange handed the page; null without one.
+  function sessionUser(req) {
+    const m = /^Bearer (\S+)$/.exec(req.headers.authorization || '');
+    const session = m ? signer.verify(m[1]) : null;
+    return session && typeof session.uid === 'string' ? session.uid : null;
+  }
 
   function serveStatic(pathname, res, headOnly) {
     let rel;
@@ -63,23 +76,27 @@ function createHttpServer({ staticDir, oauth, onReport = () => {}, log = console
   }
 
   async function handle(req, res) {
-    const url = new URL(req.url, 'http://localhost');
-    // A request that came through Discord's proxy as /.proxy/api/... is the same request as /api/...
-    const p = url.pathname.replace(/^\/\.proxy(?=\/)/, '');
-    if (p === '/api/ping' && req.method === 'GET') return json(res, 200, { ok: true, path: url.pathname });
+    const p = new URL(req.url, 'http://localhost').pathname;
     if (p === '/api/token' && req.method === 'POST') {
       const body = await readJson(req);
       try {
-        const { accessToken } = await oauth.exchange(body.code);
-        return json(res, 200, { access_token: accessToken });
+        // The page needs the access token to finish signing in with the Discord client. The session
+        // is what it shows the bot from then on: the bot's own word for who Discord said this is.
+        const { accessToken, user } = await oauth.exchange(body.code);
+        return json(res, 200, { access_token: accessToken, session: signer.sign({ uid: user.id }, SESSION_MS) });
       } catch (e) {
         if (!(e instanceof OAuthError)) throw e;
         return json(res, 401, { error: e.message });
       }
     }
-    if (p === '/api/spike-report' && req.method === 'POST') {
-      onReport(await readJson(req));
-      return json(res, 200, { ok: true });
+    if ((p === '/api/tweak' && req.method === 'GET') || (p === '/api/levels' && req.method === 'POST')) {
+      const uid = sessionUser(req);
+      if (uid === null) return json(res, 401, { error: 'sign in again' });
+      if (p === '/api/tweak') {
+        const tweak = await api.tweak(uid);
+        return tweak ? json(res, 200, tweak) : json(res, 404, { error: 'nothing to edit' });
+      }
+      return json(res, 200, await api.submit(uid, await readJson(req)));
     }
     if (p.startsWith('/api/')) return json(res, 404, { error: 'not found' });
     if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'method not allowed' });

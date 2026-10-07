@@ -7,8 +7,11 @@ const path = require('node:path');
 const http = require('node:http');
 const { createHttpServer } = require('../http-server');
 const { OAuthError } = require('../discord-oauth');
+const { createSigner } = require('../signing');
 
-async function start(t, { oauth } = {}) {
+const DAY = 24 * 60 * 60 * 1000;
+
+async function start(t, { oauth, api, now = () => 0 } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-http-'));
   const staticDir = path.join(dir, 'site');
   fs.mkdirSync(path.join(staticDir, 'vendor'), { recursive: true });
@@ -16,17 +19,24 @@ async function start(t, { oauth } = {}) {
   fs.writeFileSync(path.join(staticDir, 'vendor', 'lib.js'), 'var x = 1;');
   fs.writeFileSync(path.join(staticDir, 'notes.txt'), 'not a served type');
   fs.writeFileSync(path.join(dir, 'secret.js'), 'var secret = 1;');
-  const reports = [];
+  const signer = createSigner('test key', { now });
+  const calls = [];
   const server = createHttpServer({
     staticDir,
-    oauth: oauth || { exchange: async (code) => ({ accessToken: 'tok-' + code, user: { id: '1', name: 'n' } }) },
-    onReport: (r) => reports.push(r),
+    oauth: oauth || { exchange: async (code) => ({ accessToken: 'tok-' + code, user: { id: '42', name: 'n' } }) },
+    signer,
+    api: api || {
+      tweak: async (uid) => { calls.push(['tweak', uid]); return uid === '42' ? { title: 'T', levelText: '#p#', ticket: 'tk' } : null; },
+      submit: async (uid, body) => { calls.push(['submit', uid, body]); return { ok: true, url: 'https://discord.com/channels/1/2/3' }; },
+    },
     log: () => {},
   });
   const port = await server.listen(0);
   t.after(() => server.close());
-  return { base: 'http://127.0.0.1:' + port, port, reports };
+  return { base: 'http://127.0.0.1:' + port, port, signer, calls };
 }
+
+const bearer = (session) => ({ authorization: 'Bearer ' + session });
 
 const post = (url, body) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) });
 
@@ -68,11 +78,13 @@ test('serves nothing outside the page directory, and no other file types', async
   assert.equal((await post(base + '/vendor/lib.js', {})).status, 405);
 });
 
-test('token: a code becomes an access token', async (t) => {
-  const { base } = await start(t);
+test('token: a code becomes an access token and a session for that user', async (t) => {
+  const { base, signer } = await start(t);
   const r = await post(base + '/api/token', { code: 'abc' });
   assert.equal(r.status, 200);
-  assert.deepEqual(await r.json(), { access_token: 'tok-abc' });
+  const body = await r.json();
+  assert.equal(body.access_token, 'tok-abc');
+  assert.deepEqual(signer.verify(body.session), { uid: '42' });
 });
 
 test('token: a refusal at Discord is a 401 with its reason, and bad bodies are refused', async (t) => {
@@ -92,17 +104,47 @@ test('a failure that is not about sign-in is a 500 that says nothing', async (t)
   assert.deepEqual(await r.json(), { error: 'server error' });
 });
 
-test('ping answers with or without the proxy prefix; unknown api paths are 404', async (t) => {
+test('unknown api paths and wrong methods are 404', async (t) => {
   const { base } = await start(t);
-  assert.deepEqual(await (await fetch(base + '/api/ping')).json(), { ok: true, path: '/api/ping' });
-  assert.deepEqual(await (await fetch(base + '/.proxy/api/ping')).json(), { ok: true, path: '/.proxy/api/ping' });
   assert.equal((await fetch(base + '/api/nope')).status, 404);
   assert.equal((await fetch(base + '/api/token')).status, 404);
+  assert.equal((await fetch(base + '/api/ping')).status, 404);
+  assert.equal((await post(base + '/api/tweak', {})).status, 404);
+  assert.equal((await fetch(base + '/api/levels')).status, 404);
 });
 
-test('spike reports are handed on', async (t) => {
-  const { base, reports } = await start(t);
-  const r = await post(base + '/api/spike-report', { steps: [{ name: 'x', ok: true }] });
-  assert.deepEqual(await r.json(), { ok: true });
-  assert.deepEqual(reports, [{ steps: [{ name: 'x', ok: true }] }]);
+test('tweak: what the signed-in user is about to edit, or 404 when there is nothing', async (t) => {
+  const { base, signer, calls } = await start(t);
+  const r = await fetch(base + '/api/tweak', { headers: bearer(signer.sign({ uid: '42' }, DAY)) });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { title: 'T', levelText: '#p#', ticket: 'tk' });
+  const none = await fetch(base + '/api/tweak', { headers: bearer(signer.sign({ uid: '7' }, DAY)) });
+  assert.equal(none.status, 404);
+  assert.deepEqual(await none.json(), { error: 'nothing to edit' });
+  assert.deepEqual(calls, [['tweak', '42'], ['tweak', '7']]);
+});
+
+test('levels: a level is handed on with the session\'s user, and the answer is passed back', async (t) => {
+  const { base, signer, calls } = await start(t);
+  const r = await fetch(base + '/api/levels', { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, bearer(signer.sign({ uid: '42' }, DAY))), body: JSON.stringify({ ticket: 'tk', text: '#p#' }) });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { ok: true, url: 'https://discord.com/channels/1/2/3' });
+  assert.deepEqual(calls, [['submit', '42', { ticket: 'tk', text: '#p#' }]]);
+});
+
+test('without a session that is valid, signed here and unexpired, the api answers 401 and does nothing', async (t) => {
+  let clock = 0;
+  const { base, signer, calls } = await start(t, { now: () => clock });
+  const good = signer.sign({ uid: '42' }, DAY);
+  const forged = createSigner('another key', { now: () => clock }).sign({ uid: '42' }, DAY);
+  const noUid = signer.sign({ name: 'x' }, DAY);
+  for (const headers of [{}, { authorization: 'Bearer ' }, { authorization: good }, bearer(good.slice(0, -2) + 'AA'), bearer(forged), bearer(noUid)]) {
+    const r = await fetch(base + '/api/tweak', { headers });
+    assert.equal(r.status, 401, JSON.stringify(headers));
+    assert.deepEqual(await r.json(), { error: 'sign in again' });
+    assert.equal((await fetch(base + '/api/levels', { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, headers), body: '{}' })).status, 401);
+  }
+  clock = DAY;
+  assert.equal((await fetch(base + '/api/tweak', { headers: bearer(good) })).status, 401);
+  assert.deepEqual(calls, []);
 });
