@@ -9,6 +9,7 @@ const { loadGallery, suggest } = require('./gallery');
 const { createScores } = require('./scores');
 const { createSourceStore } = require('./sources');
 const { buildComponents, buildEmbed, parseCustomId, userMessage } = require('./presentation');
+const { planRoleChange, applyRoleChange } = require('./roles');
 
 
 // gif: the animation of the move that led here, when there is one; otherwise a still is drawn.
@@ -88,6 +89,33 @@ async function main() {
         const levels = s.count === 1 ? '1 level' : s.count + ' levels';
         const next = s.next === null ? 'That is the top rank.' : 'Next rank at ' + s.next + '.';
         await interaction.reply({ content: 'You have solved ' + levels + ' (rank ' + s.rank + '). ' + next, flags: MessageFlags.Ephemeral });
+        return;
+      }
+      if (interaction.isChatInputCommand() && interaction.commandName === 'role') {
+        const choice = interaction.options.getString('keyword', true);
+        if (!interaction.inCachedGuild()) {
+          await interaction.reply({ content: 'roles can only be set inside the server', flags: MessageFlags.Ephemeral });
+          return;
+        }
+        const plan = planRoleChange(choice, [...interaction.guild.roles.cache.values()], [...interaction.member.roles.cache.keys()]);
+        if (!plan.ok) {
+          const why = plan.reason === 'missing' ? 'there is no role named ' + choice + ' on this server' : 'that is not one of the keyword roles';
+          await interaction.reply({ content: why, flags: MessageFlags.Ephemeral });
+          return;
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+          await applyRoleChange(interaction.member.roles, plan);
+          let done;
+          if (plan.keyword === null) done = plan.remove.length ? 'Your keyword role has been removed.' : 'You have no keyword role to remove.';
+          else done = plan.add.length ? 'Your keyword role is now ' + plan.keyword + '.' : 'You already have ' + plan.keyword + '.';
+          await interaction.editReply({ content: done });
+        } catch (err) {
+          console.error('role change failed', 'code', err && err.code, err);
+          // 50013 is Discord's Missing Permissions: no Manage Roles, or the role sits above the bot's own.
+          const why = err && err.code === 50013 ? 'I am not allowed to manage that role (it has to sit below my own role, and I need Manage Roles)' : 'something went wrong';
+          await interaction.editReply({ content: why });
+        }
         return;
       }
       if (interaction.isButton()) {
