@@ -69,6 +69,19 @@ its last frame is held for the longest a GIF allows in case a viewer loops it an
 Loop and pause points depend only on the game and its inputs, never on timing, so a game rebuilt
 from its input log lands in the same place.
 
+## Level editor (in progress)
+
+The bot can serve a page that opens inside Discord as an Activity. It is being built; see
+`docs/superpowers/specs/2026-10-07-discord-level-editor-design.md`.
+
+- `DISCORD_CLIENT_SECRET` starts the bot's http server on `127.0.0.1:HTTP_PORT` (8787 by default).
+  Caddy forwards `https://games.increpare.com/puzzlescriptbot/app/` to it.
+- `TWEAK_CHANNEL_IDS` says where the pencil button appears under a game: unset, nowhere; a list of
+  channel ids, those channels and their threads; `*`, everywhere.
+- After enabling Activities in the developer portal, run `node register-commands.js` again. It
+  hands the app launcher entry to the bot, so that it answers with a hint rather than launching.
+- `scripts/build-sdk.sh` rebuilds `activity/vendor/embedded-app-sdk.js`.
+
 ## Scores
 
 Whoever makes the winning move on a level gets credit for it, once per game and level. Ranks rise at 1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90 and 100 levels. Rank-ups are announced in the channel named by `SCORE_CHANNEL_ID` only (or in the game's channel if unset). `/rank` shows your own count privately. Scores live in `data/scores.json`.

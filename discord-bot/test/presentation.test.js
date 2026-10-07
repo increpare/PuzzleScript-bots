@@ -110,3 +110,13 @@ test('errors are worded for the player, and a move that took too long reads as r
   assert.equal(userMessage(named('LevelRangeError', 'that game only has 3 levels')), 'that game only has 3 levels');
   assert.equal(userMessage(named('CompileError', 'x'.repeat(5000))).length, 1900);
 });
+
+test('the tweak button joins the control row of a level, only when asked for', () => {
+  const moves = ['ps:left', 'ps:up', 'ps:down', 'ps:right', 'ps:action'];
+  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({}), { tweak: true })), [moves, ['ps:undo', 'ps:restart', 'ps:tweak']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({ noundo: true, norestart: true }), { tweak: true })), [moves, ['ps:tweak']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({}), { tweak: false })), [moves, ['ps:undo', 'ps:restart']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'message' }, meta({}), { tweak: true })), [['ps:continue']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'level', animating: 'loop' }, meta({}), { tweak: true })), [['ps:undo', 'ps:restart']]);
+  assert.equal(parseCustomId('ps:tweak'), 'tweak');
+});

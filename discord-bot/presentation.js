@@ -2,14 +2,15 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const { GistError } = require('./gists');
 
-const ACTIONS = ['up', 'left', 'down', 'right', 'action', 'undo', 'restart', 'continue'];
-const ACTION_EMOJI = { left: '⬅️', up: '⬆️', down: '⬇️', right: '➡️', action: '✖️', undo: '↩️', restart: '🔄', continue: '▶️' };
+// tweak is not a move: it opens the level editor (see bot.js) and never reaches the game registry.
+const ACTIONS = ['up', 'left', 'down', 'right', 'action', 'undo', 'restart', 'continue', 'tweak'];
+const ACTION_EMOJI = { left: '⬅️', up: '⬆️', down: '⬇️', right: '➡️', action: '✖️', undo: '↩️', restart: '🔄', continue: '▶️', tweak: '✏️' };
 
 function button(action, style = ButtonStyle.Secondary) {
   return new ButtonBuilder().setCustomId('ps:' + action).setEmoji(ACTION_EMOJI[action]).setStyle(style);
 }
 
-function buildComponents(snapshot, meta) {
+function buildComponents(snapshot, meta, { tweak = false } = {}) {
   if (snapshot.kind === 'message') return [new ActionRowBuilder().addComponents(button('continue', ButtonStyle.Primary))];
   if (snapshot.kind !== 'level') return [];
   const flags = (meta && meta.flags) || {};
@@ -27,6 +28,7 @@ function buildComponents(snapshot, meta) {
   const row2 = [];
   if (!flags.noundo) row2.push(button('undo'));
   if (!flags.norestart) row2.push(button('restart'));
+  if (tweak) row2.push(button('tweak'));
   const rows = [new ActionRowBuilder().addComponents(...row1)];
   if (row2.length) rows.push(new ActionRowBuilder().addComponents(...row2));
   return rows;

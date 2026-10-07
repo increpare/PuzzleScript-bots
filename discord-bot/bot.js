@@ -10,17 +10,22 @@ const { createScores } = require('./scores');
 const { createSourceStore } = require('./sources');
 const { buildComponents, buildEmbed, parseCustomId, userMessage } = require('./presentation');
 const { planRoleChange, applyRoleChange } = require('./roles');
+const path = require('node:path');
+const { tweakAllowed } = require('./tweaks');
+const { createOAuth } = require('./discord-oauth');
+const { createHttpServer } = require('./http-server');
 
 
 // gif: the animation of the move that led here, when there is one; otherwise a still is drawn.
-function frame(record, snapshot, gif) {
+// tweak: whether the level editor is offered in the channel the game is in.
+function frame(record, snapshot, gif, tweak) {
   const name = gif ? 'frame.gif' : 'frame.png';
   const data = gif ? Buffer.from(gif) : renderSnapshot(snapshot).png;
   return {
     content: '',
     embeds: [buildEmbed({ record, snapshot, attachmentName: name })],
     files: [new AttachmentBuilder(data, { name })],
-    components: record.status === 'playing' ? buildComponents(snapshot, record.meta) : [],
+    components: record.status === 'playing' ? buildComponents(snapshot, record.meta, { tweak }) : [],
   };
 }
 
@@ -36,6 +41,20 @@ async function main() {
   const scores = createScores({ dataDir: cfg.dataDir });
   const gallery = loadGallery();
   const client = new Client({ intents: [GatewayIntentBits.Guilds], allowedMentions: { parse: [] } });
+
+  // A thread counts as the channel it belongs to.
+  const canTweak = (interaction) => tweakAllowed(cfg.tweakChannels, interaction.channelId, (interaction.channel && interaction.channel.parentId) || null);
+
+  // The level editor page. Without the client secret it cannot sign anyone in, so it is not served.
+  let httpServer = null;
+  if (cfg.clientSecret) {
+    httpServer = createHttpServer({
+      staticDir: path.join(__dirname, 'activity'),
+      oauth: createOAuth({ clientId: cfg.appId, clientSecret: cfg.clientSecret }),
+      onReport: (r) => console.log('spike report', JSON.stringify(r)),
+    });
+    console.log('http on 127.0.0.1:' + await httpServer.listen(cfg.httpPort));
+  }
 
   // Per-game chain so button edits land in press order.
   const editChains = new Map();
@@ -58,6 +77,13 @@ async function main() {
       return;
     }
     try {
+      // The app launcher entry Discord adds once Activities are enabled. The editor is opened from
+      // a game, not from there.
+      if (interaction.isPrimaryEntryPointCommand()) {
+        const hint = cfg.tweakChannels === '*' ? 'To edit a level, press the pencil button under a game.' : 'The level editor is still being tested and is not open yet.';
+        await interaction.reply({ content: hint, flags: MessageFlags.Ephemeral });
+        return;
+      }
       if (interaction.isChatInputCommand() && interaction.commandName === 'play') {
         const gistId = parseGistId(interaction.options.getString('game', true));
         const levelNumber = interaction.options.getInteger('level') || 1;
@@ -77,7 +103,7 @@ async function main() {
             await interaction.editReply({ content: 'realtime games cannot be played here (this one sets realtime_interval)' });
             return;
           }
-          await interaction.editReply(frame(record, snapshot));
+          await interaction.editReply(frame(record, snapshot, null, canTweak(interaction)));
           console.log('play edited', Date.now() - t0, 'ms');
         } catch (err) {
           await interaction.editReply({ content: userMessage(err, 'start') });
@@ -121,6 +147,15 @@ async function main() {
       if (interaction.isButton()) {
         const action = parseCustomId(interaction.customId);
         if (!action) return;
+        if (action === 'tweak') {
+          if (!canTweak(interaction)) {
+            await interaction.reply({ content: 'the level editor is not available here', flags: MessageFlags.Ephemeral });
+            return;
+          }
+          // The only answer: Discord allows three seconds, and a launch cannot be deferred.
+          await interaction.launchActivity();
+          return;
+        }
         const gameId = interaction.message.id;
         const t0 = Date.now();
         console.log('press', action, gameId, 'gateway-lag', t0 - interaction.createdTimestamp, 'ms');
@@ -133,7 +168,7 @@ async function main() {
         try {
           const { record, snapshot, applied, solvedLevel, gif } = await registry.press(gameId, action, (interaction.member && interaction.member.displayName) || interaction.user.globalName || interaction.user.username);
           console.log('applied', applied, gif ? 'gif ' + gif.length + ' bytes' : 'still', Date.now() - t0, 'ms');
-          await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot, gif)));
+          await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot, gif, canTweak(interaction))));
           console.log('edited', Date.now() - t0, 'ms');
           if (solvedLevel !== null && solvedLevel !== undefined) {
             const s = scores.credit(interaction.user.id, record.gistId, solvedLevel);
@@ -159,7 +194,7 @@ async function main() {
 
   client.once('ready', () => console.log('logged in as', client.user.tag));
   client.on('error', (e) => console.error('client error', e));
-  const shutdown = async () => { await registry.close(); await pool.close(); client.destroy(); process.exit(0); };
+  const shutdown = async () => { await registry.close(); await pool.close(); if (httpServer) await httpServer.close(); client.destroy(); process.exit(0); };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
   await client.login(cfg.discordToken);
