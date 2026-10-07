@@ -237,8 +237,12 @@ Added to `.env`:
 ```
 DISCORD_CLIENT_SECRET=...   # OAuth2 page of the developer portal
 HTTP_PORT=8787
-TWEAK_CHANNEL_IDS=...       # optional, see Build order
+TWEAK_CHANNEL_IDS=...       # where Tweak appears, see below
 ```
+
+`TWEAK_CHANNEL_IDS` unset means Tweak appears nowhere, so that an unfinished
+editor can never show by accident. A comma-separated list of channel ids
+means those channels and threads under them. `*` means everywhere.
 
 In the developer portal: an OAuth2 redirect URI (Discord asks for one even
 though an Activity never redirects), the URL mapping `/` →
@@ -284,6 +288,10 @@ Each step leaves the bot working.
    - `launchActivity()` in the installed discord.js (14.27);
    - how the Entry Point command is handled;
    - that `authorize` works without a visible prompt;
+   - that the page may compile code while it runs (`new Function`), which
+     the engine does for every game's rules. If Discord's content security
+     policy forbids it, the engine cannot run in the page and this design
+     has to change;
    - that the engine's keyboard and mouse input work inside the frame, and
      touch input in the Discord app on a phone;
    - how Discord presents an Activity launched from a text channel (it is
@@ -295,8 +303,8 @@ Each step leaves the bot working.
    channels named by `TWEAK_CHANNEL_IDS`, and in threads under them. During
    the beta that is the private `#mapeditor-test` channel in the PuzzleScript
    server. The bot's role has to be given access to that channel. The beta
-   ends when the user says so; the setting is then removed and Tweak appears
-   everywhere.
+   ends when the user says so; the setting is then changed and Tweak appears
+   everywhere (`TWEAK_CHANNEL_IDS=*`).
 
 The spike's launch (step 2) is also done in `#mapeditor-test`, so that
 nothing unfinished is seen by the server's members.
