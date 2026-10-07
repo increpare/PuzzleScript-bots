@@ -66,6 +66,19 @@ function hexColor(c) {
   return String(c).toLowerCase();
 }
 
+// Players count levels without the message screens between them. A message screen is shown
+// under the number of the level it introduces.
+function levelNumbering(levels, cur) {
+  let before = 0, total = 0;
+  for (let i = 0; i < levels.length; i++) {
+    if (levels[i] && levels[i].message !== undefined) continue;
+    total++;
+    if (i <= cur) before++;
+  }
+  const onMessage = levels[cur] && levels[cur].message !== undefined;
+  return { levelNumber: Math.max(1, Math.min(total, onMessage ? before + 1 : before)), realLevelCount: total };
+}
+
 function createHost() {
   const ctx = vm.createContext(makeSandbox());
   getEngineScript().runInContext(ctx);
@@ -129,6 +142,8 @@ function createHost() {
       title: md.title || 'untitled',
       author: md.author || '',
       levelCount: ps.state.levels.length,
+      // indices of the entries that are real levels (message screens are entries too, but are not counted as levels)
+      realLevels: ps.state.levels.map((l, i) => (l && l.message === undefined ? i : -1)).filter((i) => i >= 0),
       flags: {
         noaction: 'noaction' in md,
         noundo: 'noundo' in md,
@@ -185,6 +200,7 @@ function createHost() {
     const base = {
       levelIndex: ps.curlevel | 0,
       levelCount: state.levels.length,
+      ...levelNumbering(state.levels, ps.curlevel | 0),
       background: hexColor(state.bgcolor),
       textColor: hexColor(state.fgcolor),
       message: null,

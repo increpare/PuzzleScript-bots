@@ -127,13 +127,23 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
   }
 
   return {
-    async start({ gameId, channelId, gistId, startLevel = 0 }) {
+    // startLevelNumber counts real levels from 1, skipping message screens
+    async start({ gameId, channelId, gistId, startLevelNumber = 1 }) {
       if (closed) throw closedError();
       markBusy(gameId);
       try {
       const source = await getSource(gistId);
-      const rec = { gameId, channelId, gistId, seed: gameId, sourceHash: sha256(source), startLevel, inputs: [], status: 'playing', meta: null, createdAt: now(), updatedAt: now() };
-      rec.meta = await pool.load(gameId, source, rec.seed, startLevel);
+      const rec = { gameId, channelId, gistId, seed: gameId, sourceHash: sha256(source), startLevel: 0, inputs: [], status: 'playing', meta: null, createdAt: now(), updatedAt: now() };
+      rec.meta = await pool.load(gameId, source, rec.seed, 0);
+      if (startLevelNumber > 1) {
+        const real = rec.meta.realLevels || [];
+        if (startLevelNumber > real.length) {
+          await pool.drop(gameId).catch(() => {});
+          throw Object.assign(new Error('that game only has ' + real.length + (real.length === 1 ? ' level' : ' levels')), { name: 'LevelRangeError' });
+        }
+        rec.startLevel = real[startLevelNumber - 1];
+        rec.meta = await pool.load(gameId, source, rec.seed, rec.startLevel);
+      }
       sources.save(source);
       records.set(gameId, rec);
       touchLive(gameId);

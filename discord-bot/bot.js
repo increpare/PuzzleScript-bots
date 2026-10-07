@@ -25,6 +25,7 @@ function frame(record, snapshot) {
 function userMessageRaw(err) {
   if (err instanceof GistError) return err.message;
   const name = err && err.name;
+  if (name === 'LevelRangeError') return err.message;
   if (name === 'NoGameError') return 'this game is no longer available';
   if (name === 'CompileError') return 'that game does not compile: ' + err.message;
   if (name === 'TimeoutError') return 'that game took too long and was stopped';
@@ -75,7 +76,7 @@ async function main() {
     try {
       if (interaction.isChatInputCommand() && interaction.commandName === 'play') {
         const gistId = parseGistId(interaction.options.getString('game', true));
-        const level = (interaction.options.getInteger('level') || 1) - 1;
+        const levelNumber = interaction.options.getInteger('level') || 1;
         if (!gistId) {
           await interaction.reply({ content: 'that does not look like a gist id or a play link', flags: MessageFlags.Ephemeral });
           return;
@@ -85,16 +86,11 @@ async function main() {
         console.log('play deferred', Date.now() - t0, 'ms');
         const reply = await interaction.fetchReply();
         try {
-          const { record, snapshot } = await registry.start({ gameId: reply.id, channelId: interaction.channelId, gistId, startLevel: level });
+          const { record, snapshot } = await registry.start({ gameId: reply.id, channelId: interaction.channelId, gistId, startLevelNumber: levelNumber });
           console.log('play started', Date.now() - t0, 'ms');
           if (record.meta.flags.realtime) {
             registry.markDead(record.gameId, 'realtime game');
             await interaction.editReply({ content: 'realtime games cannot be played here (this one sets realtime_interval)' });
-            return;
-          }
-          if (record.meta.levelCount < level + 1) {
-            registry.markDead(record.gameId, 'level out of range');
-            await interaction.editReply({ content: 'that game only has ' + record.meta.levelCount + (record.meta.levelCount === 1 ? ' level' : ' levels') });
             return;
           }
           await interaction.editReply(frame(record, snapshot));
