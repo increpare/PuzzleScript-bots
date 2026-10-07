@@ -40,6 +40,17 @@ function getEngineScript() {
   return engineScript;
 }
 
+// levelToText: the level as legend glyphs. It is the editor page's own file, run here in the same
+// engine scope, so that the bot and the page turn a level into text in exactly one way.
+let levelTextScript = null;
+function getLevelTextScript() {
+  if (levelTextScript === null) {
+    const file = path.join(__dirname, 'activity', 'level-text.js');
+    levelTextScript = new vm.Script(fs.readFileSync(file, 'utf8'), { filename: 'level-text.js' });
+  }
+  return levelTextScript;
+}
+
 function makeSandbox() {
   const storage = {};
   const noop = () => {};
@@ -95,6 +106,7 @@ function levelNumbering(levels, cur) {
 function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FRAMES, onStep = null, now = Date.now } = {}) {
   const ctx = vm.createContext(makeSandbox());
   getEngineScript().runInContext(ctx);
+  getLevelTextScript().runInContext(ctx);
   // Top-level let bindings in the engine are not properties of the context
   // global, so expose the ones we need through accessors (same global lexical scope).
   const ps = vm.runInContext(`({
@@ -480,6 +492,8 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
     snapshot,
     frameTiles,
     levelString: () => ctx.convertLevelToString(),
+    // the level as it stands, one legend glyph per cell
+    levelText: () => String(ctx.levelToText()),
     dispose() { /* nothing to free; the context is garbage collected */ },
     _ctx: ctx, // test aid only
     _drainAgain: drainAgain,

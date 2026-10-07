@@ -138,6 +138,8 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, totalMs = 200
     play(gameId, action, { animate = false } = {}) { return call(entryFor(gameId), gameId, 'play', { action, animate }, inputMs); },
     snapshot(gameId) { return call(entryFor(gameId), gameId, 'snapshot', {}, inputMs); },
     tiles(gameId) { return call(entryFor(gameId), gameId, 'tiles', {}, inputMs); },
+    // the level as it stands, as the text a LEVELS section would hold
+    levelText(gameId) { return call(entryFor(gameId), gameId, 'levelText', {}, inputMs); },
     onEvicted(fn) { evictionListeners.push(fn); },
     has(gameId) { return gameToWorker.has(gameId); },
     async drop(gameId) {
