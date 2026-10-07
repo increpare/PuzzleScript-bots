@@ -18,7 +18,7 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, totalMs = 200
   let closed = false;
 
   function spawn() {
-    const entry = { worker: new Worker(path.join(__dirname, 'worker.js'), { workerData: { totalMs }, resourceLimits: { maxOldGenerationSizeMb: 512 } }), queue: [], inflight: null, games: new Set() };
+    const entry = { worker: new Worker(path.join(__dirname, 'worker.js'), { workerData: { totalMs, progress: true }, resourceLimits: { maxOldGenerationSizeMb: 512 } }), queue: [], inflight: null, games: new Set() };
     entry.worker.on('message', (msg) => {
       const item = entry.inflight;
       if (!item || item.id !== msg.id) return;

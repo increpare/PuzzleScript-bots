@@ -134,3 +134,20 @@ test('a move over the time budget is refused without killing the worker, and its
     await assert.rejects(pool.play('slow', 'left'), (e) => e.name === 'NoGameError');
   } finally { await pool.close(); }
 });
+
+test('a worker only reports progress to a pool that asked for it', async () => {
+  // A pool from before progress reports existed treats every message as a result, and a bot that is
+  // still running one may start workers from newer files on disk. Such a worker must stay quiet.
+  const { Worker } = require('node:worker_threads');
+  const run = (workerData) => new Promise((resolve, reject) => {
+    const w = new Worker(path.join(__dirname, '..', 'worker.js'), workerData === undefined ? {} : { workerData });
+    const seen = [];
+    w.on('error', reject);
+    w.on('message', (m) => { seen.push(m); if (!m.progress) w.terminate().then(() => resolve(seen)); });
+    w.postMessage({ id: 1, op: '__steps', gameId: 'x', args: { count: 5, ms: 60 } });
+  });
+  const quiet = await run(undefined);
+  assert.deepEqual(quiet.map((m) => !!m.progress), [false]);
+  const chatty = await run({ totalMs: 20000, progress: true });
+  assert.ok(chatty.some((m) => m.progress === true));
+});
