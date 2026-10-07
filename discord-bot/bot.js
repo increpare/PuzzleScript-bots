@@ -8,26 +8,37 @@ const { renderSnapshot } = require('./renderer');
 const { loadGallery, suggest } = require('./gallery');
 const { createScores } = require('./scores');
 const { createSourceStore } = require('./sources');
-const { buildComponents, buildEmbed, parseCustomId, userMessage } = require('./presentation');
+const { buildComponents, buildEmbed, levelFile, parseCustomId, userMessage } = require('./presentation');
 const { planRoleChange, applyRoleChange } = require('./roles');
 const path = require('node:path');
-const { tweakAllowed } = require('./tweaks');
+const { tweakAllowed, createPending } = require('./tweaks');
 const { createOAuth } = require('./discord-oauth');
 const { createHttpServer } = require('./http-server');
+const { createLevelStore } = require('./levels');
+const { createThreadIndex } = require('./threads');
+const { createSigner, signingKey } = require('./signing');
+const { createLevelPoster } = require('./level-posts');
 
+const TICKET_MS = 24 * 60 * 60 * 1000;
 
 // gif: the animation of the move that led here, when there is one; otherwise a still is drawn.
 // tweak: whether the level editor is offered in the channel the game is in.
-function frame(record, snapshot, gif, tweak) {
+// level: the sent level the game runs on (a record from the level store), if it is one.
+function frame(record, snapshot, gif, tweak, level) {
   const name = gif ? 'frame.gif' : 'frame.png';
   const data = gif ? Buffer.from(gif) : renderSnapshot(snapshot).png;
-  return {
-    content: '',
-    embeds: [buildEmbed({ record, snapshot, attachmentName: name })],
-    files: [new AttachmentBuilder(data, { name })],
-    components: record.status === 'playing' ? buildComponents(snapshot, record.meta, { tweak }) : [],
-  };
+  const files = [new AttachmentBuilder(data, { name })];
+  const text = level ? levelFile(level) : null;
+  if (text) files.push(new AttachmentBuilder(text.data, { name: text.name }));
+  let components = [];
+  if (record.status === 'playing') components = buildComponents(snapshot, record.meta, { tweak });
+  // a solved sent level can be played again, and tweaked
+  else if (record.status === 'finished' && level) components = buildComponents(snapshot, record.meta, { tweak, again: true });
+  return { content: '', embeds: [buildEmbed({ record, snapshot, attachmentName: name, level })], files, components };
 }
+
+// The name a member goes by in the server.
+const displayName = (interaction) => (interaction.member && interaction.member.displayName) || interaction.user.globalName || interaction.user.username;
 
 async function main() {
   const cfg = loadConfig();
@@ -35,7 +46,10 @@ async function main() {
   // All game source text lives in one store (99 MB cap); the gist index (1 MB) only points into it.
   const sources = createSourceStore({ dataDir: cfg.dataDir });
   const gists = createGistStore({ dataDir: cfg.dataDir, token: cfg.githubToken, sources });
-  const registry = createRegistry({ dataDir: cfg.dataDir, pool, getSource: gists.getSource, sources });
+  // Levels that players have sent with the level editor, and the games made from them.
+  const levelStore = createLevelStore({ dataDir: cfg.dataDir });
+  const levelOf = (record) => (record.levelId ? levelStore.get(record.levelId) : null);
+  const registry = createRegistry({ dataDir: cfg.dataDir, pool, getSource: gists.getSource, sources, levels: levelStore });
   console.log('loaded', registry.loadAll(), 'games', registry.storage());
 
   const scores = createScores({ dataDir: cfg.dataDir });
@@ -45,13 +59,39 @@ async function main() {
   // A thread counts as the channel it belongs to.
   const canTweak = (interaction) => tweakAllowed(cfg.tweakChannels, interaction.channelId, (interaction.channel && interaction.channel.parentId) || null);
 
+  // The level editor. A pencil press is remembered here until the page, once signed in, asks what
+  // it is to edit; the page gets that back as a signed ticket and returns it with the level.
+  const pending = createPending();
+  const signer = createSigner(signingKey(cfg.discordToken));
+  const poster = createLevelPoster({
+    registry, levels: levelStore, pool, sources, getSource: gists.getSource,
+    threads: createThreadIndex({ dataDir: cfg.dataDir }),
+    discord: { guildId: cfg.guildId, channel: (id) => client.channels.fetch(id) },
+    frame: (record, snapshot, where) => frame(record, snapshot, null, tweakAllowed(cfg.tweakChannels, where.channelId, where.parentId), levelOf(record)),
+  });
+  const editorApi = {
+    async tweak(uid) {
+      const press = pending.get(uid);
+      const start = press ? await poster.textFor(press) : null;
+      if (!start) return null;
+      const { gistId, baseSourceHash, channelId, gameId, authorName, title } = press;
+      return { title: start.title, levelText: start.levelText, ticket: signer.sign({ kind: 'ticket', uid, gistId, baseSourceHash, channelId, gameId, authorName, title }, TICKET_MS) };
+    },
+    async submit(uid, body) {
+      const ticket = signer.verify(body.ticket);
+      if (!ticket || ticket.kind !== 'ticket' || ticket.uid !== uid) return { ok: false, error: 'this editing session has run out; close it and press the pencil again' };
+      return poster.submit({ ticket, text: body.text });
+    },
+  };
+
   // The level editor page. Without the client secret it cannot sign anyone in, so it is not served.
   let httpServer = null;
   if (cfg.clientSecret) {
     httpServer = createHttpServer({
       staticDir: path.join(__dirname, 'activity'),
       oauth: createOAuth({ clientId: cfg.appId, clientSecret: cfg.clientSecret }),
-      onReport: (r) => console.log('spike report', JSON.stringify(r)),
+      signer,
+      api: editorApi,
     });
     console.log('http on 127.0.0.1:' + await httpServer.listen(cfg.httpPort));
   }
@@ -103,7 +143,7 @@ async function main() {
             await interaction.editReply({ content: 'realtime games cannot be played here (this one sets realtime_interval)' });
             return;
           }
-          await interaction.editReply(frame(record, snapshot, null, canTweak(interaction)));
+          await interaction.editReply(frame(record, snapshot, null, canTweak(interaction), null));
           console.log('play edited', Date.now() - t0, 'ms');
         } catch (err) {
           await interaction.editReply({ content: userMessage(err, 'start') });
@@ -147,16 +187,29 @@ async function main() {
       if (interaction.isButton()) {
         const action = parseCustomId(interaction.customId);
         if (!action) return;
+        const gameId = interaction.message.id;
         if (action === 'tweak') {
-          if (!canTweak(interaction)) {
-            await interaction.reply({ content: 'the level editor is not available here', flags: MessageFlags.Ephemeral });
+          const rec = registry.get(gameId);
+          if (!canTweak(interaction) || !rec) {
+            await interaction.reply({ content: rec ? 'the level editor is not available here' : 'this game is no longer available', flags: MessageFlags.Ephemeral });
             return;
           }
+          // What is to be edited: a sent level as it was sent, or the level this game is on as its
+          // author wrote it. Either way the new level is made for the same game.
+          const sent = levelOf(rec);
+          pending.set(interaction.user.id, Object.assign({
+            gistId: rec.gistId,
+            title: (rec.meta && rec.meta.title) || 'PuzzleScript game',
+            channelId: interaction.channelId,
+            gameId,
+            authorName: displayName(interaction),
+          }, sent
+            ? { levelId: sent.id, baseSourceHash: sent.baseSourceHash }
+            : { levelIndex: rec.cur ? rec.cur.levelIndex : rec.startLevel, baseSourceHash: rec.sourceHash }));
           // The only answer: Discord allows three seconds, and a launch cannot be deferred.
           await interaction.launchActivity();
           return;
         }
-        const gameId = interaction.message.id;
         const t0 = Date.now();
         console.log('press', action, gameId, 'gateway-lag', t0 - interaction.createdTimestamp, 'ms');
         if (!registry.get(gameId)) {
@@ -166,11 +219,17 @@ async function main() {
         await interaction.deferUpdate();
         console.log('ack', Date.now() - t0, 'ms');
         try {
-          const { record, snapshot, applied, solvedLevel, gif } = await registry.press(gameId, action, (interaction.member && interaction.member.displayName) || interaction.user.globalName || interaction.user.username);
+          const { record, snapshot, applied, solvedLevel, gif } = action === 'again'
+            ? await registry.again(gameId)
+            : await registry.press(gameId, action, displayName(interaction));
           console.log('applied', applied, gif ? 'gif ' + gif.length + ' bytes' : 'still', Date.now() - t0, 'ms');
-          await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot, gif, canTweak(interaction))));
+          const solved = solvedLevel !== null && solvedLevel !== undefined;
+          // A sent level lists its solvers on its own message, so they are noted before it is drawn.
+          if (solved && record.levelId) levelStore.addSolver(record.levelId, { id: interaction.user.id, name: displayName(interaction) });
+          await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot, gif, canTweak(interaction), levelOf(record))));
           console.log('edited', Date.now() - t0, 'ms');
-          if (solvedLevel !== null && solvedLevel !== undefined) {
+          // Ranks are for the games' own levels: a sent level could be made trivial to gain rank.
+          if (solved && !record.levelId) {
             const s = scores.credit(interaction.user.id, record.gistId, solvedLevel);
             // Rank-ups are announced only in the score channel (or wherever the game is, if none is configured).
             const here = !cfg.scoreChannelId || cfg.scoreChannelId === interaction.channelId;

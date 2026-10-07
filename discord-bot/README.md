@@ -81,6 +81,12 @@ The bot can serve a page that opens inside Discord as an Activity. It is being b
 - After enabling Activities in the developer portal, run `node register-commands.js` again. It
   hands the app launcher entry to the bot, so that it answers with a hint rather than launching.
 - `scripts/build-sdk.sh` rebuilds `activity/vendor/embedded-app-sdk.js`.
+- Sent levels are kept in `data/levels/`, one file each, up to 5 MB; after that new ones are
+  refused, and none is ever deleted to make room. `data/threads.json` records which thread holds
+  the levels of which game. A sent level is posted as a game of its own in that thread; solving
+  it is noted on its message and gives no rank credit.
+- The bot's role needs Create Public Threads, Send Messages in Threads and Read Message History
+  wherever the pencil is allowed.
 
 ## Scores
 
