@@ -110,8 +110,14 @@ The host never touches Discord. It is unit-tested on its own.
 - A move's whole chain of `again` turns has a 20 s budget, checked by the
   host between turns (`MoveTooLongError`). The worker survives; only that
   game's half-played copy is discarded.
-- Neither error ends the game: the move was never added to the input log, so
-  the next press rebuilds the game from the log and carries on.
+- Neither error ends the game by itself: the move was never added to the
+  input log, so the next press rebuilds the game from the log and carries on.
+  Three such refusals in a row do end it (any press that works resets the
+  count), so that a game which only ever times out cannot keep a worker busy.
+- A rebuild (loading a game again and replaying its log) is allowed three
+  times each limit, compile included.
+- The jobs themselves are in `worker-ops.js`; `worker.js` is the thread
+  plumbing around them.
 - Hosts live in `vm` contexts inside the worker, one per game, so engine
   globals never collide.
 
@@ -144,8 +150,9 @@ The host never touches Discord. It is unit-tested on its own.
 |---|---|
 | Source size | 1 MB |
 | Compile budget | 10 s |
-| One turn of the engine | 3 s |
+| One turn of the engine | 3 s (9 s when replaying the input log) |
 | One move's whole `again` chain | 20 s (60 s when replaying the input log) |
+| Refused presses in a row before a game is stopped | 3 |
 | `again` turns before a chain is paused | 1000 |
 | Frames in one animation | 300 distinct, 16 MB captured, 4 MB encoded |
 | Live games | 30 |
@@ -157,8 +164,9 @@ The host never touches Discord. It is unit-tested on its own.
 A move can set off a chain of `again` turns. Three things can end the drain
 besides the chain finishing, and only the third depends on timing:
 
-1. **A state repeats.** The level, pending movements, level index and random
-   generator state are hashed after each turn. A repeat means the chain would
+1. **A state repeats.** The level, pending movements, level index, random
+   generator state and restart target are digested (SHA-256) after each turn;
+   a weaker hash once mistook a long slide for a loop. A repeat means the chain would
    never end (an intentional looping animation, such as an explosion shown
    after losing). The drain stops there with the engine still wanting another
    turn; the snapshot reports `animating: 'loop'`.
@@ -180,9 +188,14 @@ under 20 ms). A chain that ended plays once: the first frame is the final
 state for one blink, so that a client showing a GIF as a still shows the right
 board, then the turns, resting on the final state. That last frame is given
 the longest delay a GIF allows (about eleven minutes), so a viewer that loops
-regardless of the missing loop block still rests on it. A loop plays for ever. If
-there are too many frames or colours, or encoding runs long, the still PNG is
-sent instead.
+regardless of the missing loop block still rests on it. A loop plays for ever,
+with two exceptions that play once and rest on the state the game was left
+in: a loop that does not come back to the first state of its chain (it has a
+lead-in, and a GIF can only repeat from its first frame), and a loop whose
+move left a message on screen (repeating the turns would never show it; after
+`continue` the level is shown as a still with the looping hint). If there are
+too many frames or colours, encoding runs long, or encoding fails, the still
+PNG is sent instead.
 
 ## Configuration
 

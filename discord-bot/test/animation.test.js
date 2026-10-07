@@ -114,3 +114,36 @@ test('it gives up on more colours than a GIF can hold, and on a result that is t
   assert.equal(buildAnimation({ base, frames: many }), null);
   assert.equal(buildAnimation({ base, frames, maxBytes: 100 }), null);
 });
+
+test('a move that raises a message and starts a loop plays once and rests on the message', () => {
+  const host = createHost();
+  host.load(LOOP.replace('[ Player | Boom1 ] again', '[ Player | Boom1 ] again message boom'), 'seed', 0);
+  host.input('right'); host.input('right', { capture: true });
+  const frames = host.takeFrames(), base = host.snapshot();
+  host.dispose();
+  assert.deepEqual([base.kind, base.animating, frames.loop], ['message', 'loop', true]);
+  const gif = decodeGIF(buildAnimation({ base, frames }));
+  assert.equal(gif.loop, false, 'repeating the turns for ever would never show the message');
+  const shown = play(gif);
+  const text = rgbOf(renderTextRGBA(base));
+  assert.ok(same(shown[0], text));
+  assert.ok(same(shown[shown.length - 1], text));
+  assert.equal(gif.frames[gif.frames.length - 1].delayCs, 65535);
+});
+
+test('a loop reached through a lead-in plays once, the lead-in and one pass round, and rests where the game was left', () => {
+  const host = createHost();
+  host.load(FIXTURE('again-fuse.txt'), 'seed', 0);
+  host.input('right', { capture: true });
+  const frames = host.takeFrames(), base = host.snapshot();
+  host.dispose();
+  const gif = decodeGIF(buildAnimation({ base, frames }));
+  assert.equal(gif.loop, false);
+  assert.equal(gif.frames.length, 7, 'the blink, two fuse turns, three explosion turns, and the state to rest on');
+  const shown = play(gif);
+  const rest = rgbOf(renderLevelRGBA(base));
+  assert.ok(same(shown[0], rest));
+  assert.ok(same(shown[6], rest));
+  assert.ok(same(shown[6], shown[3]), 'it rests on the first state of the loop');
+  assert.equal(gif.frames[6].delayCs, 65535);
+});

@@ -5,11 +5,14 @@ const { createSession } = require('../session');
 
 // A toy engine: a game is a list of screens. On a level, 'right' solves it; everything else is
 // applied without effect (undo is refused when noundo). On a message only 'continue' works.
+// A 'paused' screen is a level whose long animation stopped part-way: moves are ignored there
+// until 'continue' has carried it on.
 function fakePool() {
   const games = new Map(), calls = [];
   const snap = (g) => {
-    const kind = g.index >= g.def.screens.length ? 'finished' : g.def.screens[g.index];
-    return { kind, levelIndex: g.index, levelCount: g.def.screens.length, message: kind === 'message' ? 'm' + g.index : null, background: '#000000', textColor: '#ffffff' };
+    const screen = g.index >= g.def.screens.length ? 'finished' : g.def.screens[g.index];
+    const kind = screen === 'paused' ? 'level' : screen;
+    return { kind, animating: screen === 'paused' ? 'more' : null, levelIndex: g.index, levelCount: g.def.screens.length, message: kind === 'message' ? 'm' + g.index : null, background: '#000000', textColor: '#ffffff' };
   };
   return {
     calls,
@@ -29,6 +32,11 @@ function fakePool() {
       const kind = snap(g).kind;
       if (kind === 'message') { if (action !== 'continue') return false; g.index++; return true; }
       if (kind !== 'level') return false;
+      if (g.def.screens[g.index] === 'paused') {
+        if (action === 'continue') { g.def.screens[g.index] = 'level'; return true; }
+        return action === 'undo' || action === 'restart';
+      }
+      if (action === 'continue') return false;
       if (action === 'undo' && g.def.noundo) return false;
       if (action === 'right') g.index++;
       return true;
@@ -142,6 +150,22 @@ test('only go gets past a message, and it works straight away', async () => {
   await h.session.idle();
   assert.equal(h.session.view().snapshot.kind, 'level');
   assert.deepEqual(h.session.view().moves, [{ action: 'continue', user: 'mo' }]);
+});
+
+test('go carries on a long animation that was paused part-way, and moves wait until it has', async () => {
+  const h = setup({ g1: { title: 'Long', screens: ['paused', 'level'] } });
+  await h.session.start();
+  assert.equal(h.session.view().snapshot.animating, 'more');
+  h.say('pip', 'r');
+  await h.session.idle();
+  assert.equal(h.session.view().snapshot.levelIndex, 0, 'the game ignores a move while its animation is unfinished');
+  h.say('mo', 'go');
+  await h.session.idle();
+  assert.equal(h.session.view().snapshot.animating, null);
+  assert.deepEqual(h.session.view().moves, [{ action: 'continue', user: 'mo' }]);
+  h.say('pip', 'r');
+  await h.session.idle();
+  assert.equal(h.session.view().snapshot.levelIndex, 1);
 });
 
 test('go does nothing on a level', async () => {

@@ -104,8 +104,10 @@ function createSession({ pool, getSource, rotation, now = Date.now, onChange = (
   async function applyOne(item) {
     const action = item.action;
     // A message waits for "go" and nothing else gets past it, so moves typed for the screen
-    // before cannot skip it; "go" means nothing anywhere else.
-    if ((snapshot.kind === 'message') !== (action === 'continue')) return;
+    // before cannot skip it. "go" also carries on a long animation that the game paused part-way,
+    // and means nothing anywhere else.
+    const onMessage = snapshot.kind === 'message';
+    if (action === 'continue' ? !(onMessage || snapshot.animating === 'more') : onMessage) return;
     if (!(await pool.input(gameId, action))) return;
     const prev = snapshot;
     snapshot = await pool.snapshot(gameId);

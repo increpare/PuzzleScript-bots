@@ -48,13 +48,17 @@ its last frame is held for the longest a GIF allows in case a viewer loops it an
 
 - **Loops.** Some games animate for ever on purpose (an explosion that keeps flickering after you
   lose). The chain is stopped as soon as a state repeats, the GIF loops, and only undo and restart
-  are offered, because the engine ignores moves while an `again` chain is running.
+  are offered, because the engine ignores moves while an `again` chain is running. Two loops are
+  shown playing once instead, resting on the state the game was left in: one reached through a
+  lead-in (a fuse that burns down before the explosion starts flickering), since a GIF can only
+  repeat from its first frame, and one whose move also raised a message, which has to be seen.
 - **Very long chains** pause after 1000 turns with a continue button. Chains of more than 300
   distinct frames are shown as a still.
 - **Too slow.** A move whose chain takes more than 20 s is refused and not recorded; the game
   carries on from where it was. A single turn that takes more than 3 s stops the worker, which is
-  also only a refused move. Rebuilding a game from its input log allows each input three times the
-  live budget.
+  also only a refused move. Three refused presses in a row stop the game, because each one costs
+  the worker seconds; any press that works starts the count again. Rebuilding a game from its
+  input log allows three times each of these limits, compiling included.
 
 Loop and pause points depend only on the game and its inputs, never on timing, so a game rebuilt
 from its input log lands in the same place.

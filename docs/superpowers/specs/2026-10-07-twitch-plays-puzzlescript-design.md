@@ -120,8 +120,9 @@ limit 3 s, as in the Discord bot) and everything chat does to it.
   message screen appears, so moves aimed at the old screen do not spill into
   the new one.
 - **Message screens** wait for `go`. Nothing else gets past one, so moves
-  typed for the screen before cannot skip it, and `go` does nothing anywhere
-  else. The message shows "type 'go' to continue" and the command list
+  typed for the screen before cannot skip it. `go` also carries on an `again`
+  chain that the engine host paused at its step cap (`animating: 'more'`), and
+  does nothing anywhere else. The message shows "type 'go' to continue" and the command list
   shows `go` while it is up.
 - **Move log**: the last 12 applied commands with the login that sent them.
   Commands the game refuses (undo in a `noundo` game, and so on) are not

@@ -333,3 +333,64 @@ test('a game left in a looping animation is rebuilt into the same state', async 
     assert.deepEqual([undone.applied, undone.snapshot.animating], [true, null]);
   } finally { await reg.close(); await pool.close(); }
 });
+
+test('a game brought back from its log is loaded as a rebuild, and a new game is not', async () => {
+  const dir = tmp();
+  const real = createPool({ size: 1 });
+  const loads = [];
+  const pool = Object.assign({}, real, { load(id, source, seed, level, opts) { loads.push(!!(opts && opts.rebuild)); return real.load(id, source, seed, level, opts); } });
+  const reg = createRegistry({ dataDir: dir, pool, getSource });
+  try {
+    await reg.start({ gameId: 'rb', channelId: 'c', gistId: 'sok' });
+    await reg.press('rb', 'right');
+    await real.drop('rb');
+    await reg.press('rb', 'right');
+    assert.deepEqual(loads, [false, true]);
+  } finally { await reg.close(); await real.close(); }
+});
+
+test('three refused presses in a row stop the game, and a press that works in between starts the count again', async () => {
+  const dir = tmp();
+  const real = createPool({ size: 1 });
+  const { pool, failNext } = failingOnce(real, 'MoveTooLongError');
+  const reg = createRegistry({ dataDir: dir, pool, getSource });
+  const refused = async () => { failNext(); await assert.rejects(reg.press('st', 'up'), (e) => e.name === 'MoveTooLongError'); };
+  try {
+    await reg.start({ gameId: 'st', channelId: 'c', gistId: 'sok' });
+    await refused(); await refused();
+    assert.equal((await reg.press('st', 'right')).applied, true);
+    await refused(); await refused();
+    assert.equal(reg.get('st').status, 'playing');
+    failNext();
+    await assert.rejects(reg.press('st', 'up'), (e) => e.name === 'EngineError' && /kept taking too long/.test(e.message));
+    const rec = reg.get('st');
+    assert.equal(rec.status, 'dead');
+    assert.match(rec.deadReason, /kept taking too long/);
+    assert.deepEqual(rec.inputs, ['right']);
+    const after = await reg.press('st', 'right');
+    assert.deepEqual([after.applied, after.snapshot.kind], [false, 'message']);
+  } finally { await reg.close(); await real.close(); }
+});
+
+test('a game the pool has lost track of is rebuilt on the next press', async () => {
+  const dir = tmp();
+  const real = createPool({ size: 1 });
+  let lose = false;
+  const pool = Object.assign({}, real, {
+    async play(id, action, opts) {
+      if (!lose) return real.play(id, action, opts);
+      lose = false;
+      throw Object.assign(new Error('no such game'), { name: 'NoGameError' });
+    },
+  });
+  const reg = createRegistry({ dataDir: dir, pool, getSource });
+  try {
+    await reg.start({ gameId: 'ng', channelId: 'c', gistId: 'sok' });
+    await reg.press('ng', 'right');
+    lose = true;
+    await assert.rejects(reg.press('ng', 'right'), (e) => e.name === 'EvictedError', 'the player is asked to press again, not told the game is gone');
+    assert.equal(real.has('ng'), false, 'the copy that could not be trusted was dropped');
+    const r = await reg.press('ng', 'right');
+    assert.deepEqual([r.applied, r.record.inputs], [true, ['right', 'right']]);
+  } finally { await reg.close(); await real.close(); }
+});

@@ -151,3 +151,39 @@ test('a worker only reports progress to a pool that asked for it', async () => {
   const chatty = await run({ totalMs: 20000, progress: true });
   assert.ok(chatty.some((m) => m.progress === true));
 });
+
+test('a job that reported progress and then went quiet is still stopped', async () => {
+  const pool = createPool({ size: 1, inputMs: 300 });
+  try {
+    await pool.load('a', SOKOBAN, 'seed', 0);
+    const t0 = Date.now();
+    await assert.rejects(pool._call('a', '__steps', { count: 4, ms: 50, thenSilentMs: 3000 }, 300), (e) => e.name === 'TimeoutError');
+    assert.ok(Date.now() - t0 < 2000, 'stopped one per-step limit after its last report, not left to finish');
+  } finally { await pool.close(); }
+});
+
+// Stands in for worker.js: it stays silent for as long as the job asks ("spin 500" as the source,
+// the first input or the action), then answers with the job it was given.
+const STUB_WORKER = new URL('data:text/javascript,' + encodeURIComponent(`
+  import { parentPort } from 'node:worker_threads';
+  parentPort.on('message', ({ id, op, args }) => {
+    const ask = args.source !== undefined ? args.source : args.actions ? args.actions[0] : args.action;
+    const end = Date.now() + (Number(String(ask || '').replace('spin ', '')) || 0);
+    while (Date.now() < end) { /* busy wait */ }
+    parentPort.postMessage({ id, ok: true, result: { op, args } });
+  });
+`));
+
+test('rebuilding a game may stay silent three times as long, loading it and replaying its inputs alike', async () => {
+  const pool = createPool({ size: 1, compileMs: 300, inputMs: 300, workerFile: STUB_WORKER });
+  try {
+    const fresh = await pool.load('warm', 'spin 0', 'seed', 0); // also gives the worker time to start
+    assert.equal(fresh.args.rebuild, false);
+    const rebuilt = await pool.load('g', 'spin 500', 'seed', 0, { rebuild: true });
+    assert.equal(rebuilt.args.rebuild, true);
+    assert.equal((await pool.apply('g', ['spin 500'])).op, 'apply');
+    await assert.rejects(pool.input('g', 'spin 500'), (e) => e.name === 'TimeoutError', 'a live move is held to the usual limit');
+    await pool.load('warm', 'spin 0', 'seed', 0, { rebuild: true }); // the replacement worker starting
+    await assert.rejects(pool.load('h', 'spin 500', 'seed', 0), (e) => e.name === 'TimeoutError', 'and so is starting a game');
+  } finally { await pool.close(); }
+});

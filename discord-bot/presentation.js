@@ -40,9 +40,17 @@ function footerText(record, snapshot) {
   const m = snapshot.realLevelCount !== undefined ? snapshot.realLevelCount : snapshot.levelCount;
   const level = 'Level ' + n + ' of ' + m;
   const text = record.lastMover ? level + ' (Last move: ' + record.lastMover + ')' : level;
-  if (snapshot.animating === 'loop') return text + ' · looping: undo or restart';
-  if (snapshot.animating === 'more') return text + ' · still animating: continue, undo or restart';
-  return text;
+  // An again chain is still running: say which buttons get out of it. On a message the only button
+  // is continue, which dismisses the message, so there is nothing to explain yet.
+  if (!snapshot.animating || snapshot.kind !== 'level') return text;
+  const flags = (record.meta && record.meta.flags) || {};
+  const ways = [];
+  if (snapshot.animating === 'more') ways.push('continue');
+  if (!flags.noundo) ways.push('undo');
+  if (!flags.norestart) ways.push('restart');
+  if (ways.length === 0) return text + ' · looping, and this game has no undo or restart';
+  const list = ways.length === 1 ? ways[0] : ways.slice(0, -1).join(', ') + ' or ' + ways[ways.length - 1];
+  return text + (snapshot.animating === 'more' ? ' · still animating: ' : ' · looping: ') + list;
 }
 
 function buildEmbed({ record, snapshot, attachmentName }) {

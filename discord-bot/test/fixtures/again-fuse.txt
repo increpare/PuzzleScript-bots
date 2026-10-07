@@ -1,0 +1,82 @@
+title again fuse
+author test
+
+========
+OBJECTS
+========
+
+Background
+black
+
+Wall
+grey
+
+Player
+red
+
+Bomb
+yellow
+
+Fuse1
+green
+
+Fuse2
+lightgreen
+
+Boom1
+orange
+
+Boom2
+white
+
+Boom3
+darkred
+
+Fresh
+pink
+
+=======
+LEGEND
+=======
+
+. = Background
+# = Wall
+P = Player
+B = Bomb
+
+=======
+SOUNDS
+=======
+
+================
+COLLISIONLAYERS
+================
+
+Background
+Bomb, Fuse1, Fuse2, Boom1, Boom2, Boom3, Fresh
+Player, Wall
+
+======
+RULES
+======
+
+[ Boom3 ] -> [ Fresh ] again
+[ Boom2 ] -> [ Boom3 ] again
+[ Boom1 ] -> [ Boom2 ] again
+[ Fuse2 ] -> [ Fresh ] again
+[ Fuse1 ] -> [ Fuse2 ] again
+[ Fresh ] -> [ Boom1 ]
+[ > Player | Bomb ] -> [ Player | Fuse1 ] again
+
+==============
+WINCONDITIONS
+==============
+
+=======
+LEVELS
+=======
+
+#######
+#PB...#
+#######
+

@@ -23,7 +23,8 @@ function cellsOf(objects, stride, objectCount) {
 
 // Turn the frames captured for one move (engine-host takeFrames) into a GIF.
 // base is the snapshot the game was left in, which is what the still picture would show.
-// A chain that ended plays once and rests on that state; a loop plays for ever.
+// A chain that ended plays once and rests on that state; a loop plays for ever, unless the game was
+// left on a message, which repeating the turns would never show.
 // Returns null when it cannot be done within the limits, and the caller shows the still instead.
 function buildAnimation({ base, frames, onProgress = null, budgetMs = 5000, now = Date.now, maxBytes = 4_000_000 }) {
   // One palette for the whole animation: every colour any frame can contain.
@@ -58,7 +59,8 @@ function buildAnimation({ base, frames, onProgress = null, budgetMs = 5000, now 
     : renderTextRGBA({ kind: f.kind, message: f.message, background: frames.background, textColor: frames.textColor }));
   const drawBase = () => (base.kind === 'level' ? renderLevelRGBA(base) : renderTextRGBA(base));
 
-  const gif = createGIF({ width: FRAME_W, height: FRAME_H, palette, loop: frames.loop });
+  const loops = frames.loop && base.kind === 'level';
+  const gif = createGIF({ width: FRAME_W, height: FRAME_H, palette, loop: loops });
   const canvas = new Uint8Array(size);
   // The frame not yet written: it stays back so that its delay can grow if the next picture is the same.
   let held = null;
@@ -92,7 +94,7 @@ function buildAnimation({ base, frames, onProgress = null, budgetMs = 5000, now 
 
   const intervalCs = Math.max(MIN_DELAY_CS, Math.round(frames.intervalMs / 10));
   const deadline = now() + budgetMs;
-  const final = frames.loop ? null : toIndices(drawBase());
+  const final = loops ? null : toIndices(drawBase());
   // A client that shows a GIF as a still shows its first frame, so a chain that ends opens on the
   // final state for one blink before the turns play.
   if (final) put(final, MIN_DELAY_CS);

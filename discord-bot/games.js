@@ -6,6 +6,9 @@ const { createSourceStore } = require('./sources');
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
+// How many presses in a row may be refused for taking too long before the game is stopped.
+const MAX_REFUSALS = 3;
+
 function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now, maxRecordBytes = 1_000_000, maxSourceBytes = 99_000_000, sources = createSourceStore({ dataDir, maxBytes: maxSourceBytes, now }) }) {
   const gamesDir = path.join(dataDir, 'games');
   fs.mkdirSync(gamesDir, { recursive: true });
@@ -16,6 +19,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
   const live = [];            // gameIds, most recent last
   const queues = new Map();   // gameId -> Promise chain (never rejects)
   const busy = new Map();     // gameId -> in-flight operation count (never evicted/pruned while > 0)
+  const refusals = new Map(); // gameId -> presses in a row that took too long
   let closed = false;
   const closedError = () => Object.assign(new Error('registry closed'), { name: 'RegistryClosedError' });
   const markBusy = (id) => busy.set(id, (busy.get(id) || 0) + 1);
@@ -45,6 +49,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
 
   function removeRecord(gameId) {
     records.delete(gameId);
+    refusals.delete(gameId);
     recordBytes -= recordSizes.get(gameId) || 0;
     recordSizes.delete(gameId);
     forgetLive(gameId);
@@ -98,7 +103,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
       if (rec.sourceHash) sources.save(source);
     }
     try {
-      await pool.load(rec.gameId, source, rec.seed, rec.startLevel);
+      await pool.load(rec.gameId, source, rec.seed, rec.startLevel, { rebuild: true });
       if (rec.inputs.length) await pool.apply(rec.gameId, rec.inputs);
     } catch (e) {
       // never leave a half-replayed game registered in the pool
@@ -121,6 +126,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
   function markDead(rec, err) {
     rec.status = 'dead';
     rec.deadReason = String((err && err.message) || err);
+    refusals.delete(rec.gameId);
     forgetLive(rec.gameId);
     persist(rec);
     pool.drop(rec.gameId).catch(() => {});
@@ -169,7 +175,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
         try {
           await ensureLive(rec);
           const { applied, snapshot, gif } = await pool.play(gameId, action, { animate: true });
-          if (applied) { rec.inputs.push(action); if (by) rec.lastMover = String(by).slice(0, 80); }
+          if (applied) { rec.inputs.push(action); refusals.delete(gameId); if (by) rec.lastMover = String(by).slice(0, 80); }
           // A level is solved when a move (not continue/undo/restart) takes play from a level to a later one.
           const prev = rec.cur;
           const isMove = applied && !['continue', 'undo', 'restart'].includes(action);
@@ -182,13 +188,26 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
         } catch (e) {
           if (e.name === 'EngineError' || e.name === 'CompileError' || e.name === 'ResourceError') markDead(rec, e);
           // EvictedError (bystander of another game's timeout) and other transient failures leave the game as it is
-          else if (!['EvictedError', 'PoolClosedError', 'RegistryClosedError', 'NoGameError', 'GistError'].includes(e.name)) {
+          else if (!['EvictedError', 'PoolClosedError', 'RegistryClosedError', 'GistError'].includes(e.name)) {
             // A move that took too long (MoveTooLongError, or TimeoutError when the worker had to be
             // stopped) is refused, not fatal: it was never added to the input log. Like any unknown
             // failure it may have left the live game part-way through a move, so that copy is thrown
             // away and the next press rebuilds the game from the log.
             await pool.drop(gameId).catch(() => {});
             forgetLive(gameId);
+            // The pool or its worker no longer had the game. The record is fine, and pressing again rebuilds it.
+            if (e.name === 'NoGameError') throw Object.assign(new Error('the game has to be rebuilt'), { name: 'EvictedError' });
+            if (e.name === 'MoveTooLongError' || e.name === 'TimeoutError') {
+              // Each refusal costs a worker seconds of work, and a TimeoutError costs every game on that
+              // worker a rebuild, so a game that does nothing else is stopped.
+              const n = (refusals.get(gameId) || 0) + 1;
+              refusals.set(gameId, n);
+              if (n >= MAX_REFUSALS) {
+                const fatal = Object.assign(new Error('its moves kept taking too long'), { name: 'EngineError' });
+                markDead(rec, fatal);
+                throw fatal;
+              }
+            }
           }
           throw e;
         }

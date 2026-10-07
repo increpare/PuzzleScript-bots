@@ -201,3 +201,94 @@ test('replaying the input log gets three times the budget of a live move', () =>
   assert.equal(findX(again.snapshot(), '#b2dcef'), 7);
   again.dispose();
 });
+
+// A corridor long enough for hundreds of again turns, with enough objects declared before the
+// sliding one that it gets id 31: the top bit of a word in the engine's level array.
+function longSlide(length) {
+  const fillers = Array.from({ length: 30 }, (_, i) => 'F' + String.fromCharCode(97 + (i % 26)) + (i >= 26 ? 'x' : ''));
+  return ['title long slide', 'author test', '', '========', 'OBJECTS', '========', '', 'Background', 'black', '',
+    fillers.map((f) => f + '\ngreen\n').join('\n'),
+    'Sliding', 'lightblue', '', 'Player', 'red', '', 'Wall', 'grey', '', 'Puck', 'blue', '',
+    '=======', 'LEGEND', '=======', '', '. = Background', '# = Wall', 'P = Player', 'K = Puck', '',
+    '=======', 'SOUNDS', '=======', '', '================', 'COLLISIONLAYERS', '================', '',
+    'Background', fillers.join(', '), 'Sliding, Player, Wall, Puck', '',
+    '======', 'RULES', '======', '', '[ > Player | Puck ] -> [ Player | Sliding ]', '[ Sliding ] -> [ right Sliding ] again', '',
+    '==============', 'WINCONDITIONS', '==============', '', '=======', 'LEVELS', '=======', '',
+    '#'.repeat(length + 4), '#PK' + '.'.repeat(length) + '#', '#'.repeat(length + 4), ''].join('\n');
+}
+
+test('a long chain that ends by itself is never mistaken for a loop', () => {
+  const src = longSlide(950);
+  // these seeds made a weaker state hash report a repeat part-way along the corridor
+  for (const seed of ['seed4', 'seed9', 'seed14', 'seed19']) {
+    const host = createHost();
+    host.load(src, seed, 0);
+    assert.equal(host._ps.state.objects.sliding.id, 31);
+    host.input('right');
+    const s = host.snapshot();
+    assert.strictEqual(s.animating, null, seed);
+    assert.equal(findX(s, '#b2dcef'), 952, seed + ': the puck reached the far wall');
+    host.dispose();
+  }
+});
+
+test('a loop reached through a lead-in is reported as a loop, but its frames are not one that can simply be repeated', () => {
+  const host = createHost();
+  host.load(FIXTURE('again-fuse.txt'), 'seed', 0);
+  host.input('right', { capture: true });
+  assert.equal(host.snapshot().animating, 'loop');
+  const frames = host.takeFrames();
+  assert.equal(frames.list.length, 5, 'two fuse states, then one pass round three explosion states');
+  assert.equal(frames.loop, false, 'repeating these frames would replay the fuse');
+  host.dispose();
+});
+
+test('the frames of a chain that was only paused are not marked as a loop', () => {
+  const host = createHost({ stepCap: 2 });
+  host.load(SLIDE, 'seed', 0);
+  host.input('right', { capture: true });
+  assert.equal(host.snapshot().animating, 'more');
+  assert.equal(host.takeFrames().loop, false);
+  host.dispose();
+});
+
+test('playing live with frames captured and replaying the log leave the engine in the same state', () => {
+  const rng = (host) => { const r = host._ps.RandomGen._state; return [r.i, r.j, r.s.join(',')]; };
+  for (const [src, moves] of [[LOOP, ['right', 'right', 'left', 'undo', 'right', 'right']], [SLIDE, ['right', 'left', 'undo', 'right']], [FIXTURE('again-fuse.txt'), ['right', 'undo', 'right']]]) {
+    const live = createHost();
+    live.load(src, 'seed', 0);
+    const applied = [];
+    for (const m of moves) if (live.input(m, { capture: true })) applied.push(m);
+    const replayed = createHost();
+    replayed.load(src, 'seed', 0);
+    replayed.replay(applied);
+    assert.equal(replayed.levelString(), live.levelString());
+    assert.equal(replayed.snapshot().animating, live.snapshot().animating);
+    assert.deepEqual(rng(replayed), rng(live));
+    live.dispose(); replayed.dispose();
+  }
+});
+
+test('a message raised by the move that starts a loop is shown first; continue then reveals the loop', () => {
+  const host = createHost();
+  host.load(LOOP.replace('[ Player | Boom1 ] again', '[ Player | Boom1 ] again message boom'), 'seed', 0);
+  host.input('right'); host.input('right');
+  let s = host.snapshot();
+  assert.deepEqual([s.kind, s.message, s.animating], ['message', 'boom', 'loop']);
+  assert.equal(host.input('continue'), true);
+  s = host.snapshot();
+  assert.deepEqual([s.kind, s.animating], ['level', 'loop']);
+  host.dispose();
+});
+
+test('rebuilding a game gives the chain at the start of a level the longer budget too', () => {
+  const src = SLIDE.replace('author test', 'author test\nrun_rules_on_level_start').replace('K = Puck', 'K = Sliding');
+  let t = 0;
+  const live = createHost({ totalMs: 10, now: () => (t += 3) });
+  assert.throws(() => live.load(src, 'seed', 0), MoveTooLongError);
+  live.dispose();
+  const rebuilt = createHost({ totalMs: 10, now: () => (t += 3) });
+  rebuilt.load(src, 'seed', 0, { rebuild: true });
+  assert.equal(findX(rebuilt.snapshot(), '#b2dcef'), 7);
+  rebuilt.dispose();
+});

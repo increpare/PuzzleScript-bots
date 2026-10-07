@@ -1,13 +1,16 @@
 'use strict';
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
+const { REPLAY_BUDGET_SCALE } = require('./engine-host');
 
 // compileMs: how long a game may take to compile.
 // inputMs:   how long a worker may go without finishing a turn of the engine. A job that keeps making
 //            progress is not stopped by this limit; one stuck inside a single turn is.
 // totalMs:   how long one move's whole chain of again turns may take. The game checks this itself
 //            between turns and refuses the move, which leaves the worker and its other games alone.
-function createPool({ size = 2, compileMs = 10000, inputMs = 3000, totalMs = 20000, onEvicted = () => {} } = {}) {
+// Rebuilding a game from its input log gets each of these three times over: everything in the log
+// was within the limits when it was played, and a busy moment must not make a game impossible to resume.
+function createPool({ size = 2, compileMs = 10000, inputMs = 3000, totalMs = 20000, onEvicted = () => {}, workerFile = path.join(__dirname, 'worker.js') } = {}) {
   // entry: {worker, queue: item[], inflight: item|null, games: Set}
   // item:  {id, gameId, op, args, deadlineMs, resolve, reject, timer}
   const evictionListeners = [onEvicted];
@@ -18,7 +21,7 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, totalMs = 200
   let closed = false;
 
   function spawn() {
-    const entry = { worker: new Worker(path.join(__dirname, 'worker.js'), { workerData: { totalMs, progress: true }, resourceLimits: { maxOldGenerationSizeMb: 512 } }), queue: [], inflight: null, games: new Set() };
+    const entry = { worker: new Worker(workerFile, { workerData: { totalMs, progress: true }, resourceLimits: { maxOldGenerationSizeMb: 512 } }), queue: [], inflight: null, games: new Set() };
     entry.worker.on('message', (msg) => {
       const item = entry.inflight;
       if (!item || item.id !== msg.id) return;
@@ -113,20 +116,22 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, totalMs = 200
   }
 
   return {
-    async load(gameId, source, seed, levelIndex) {
+    // rebuild: the game is being brought back from its input log (see above)
+    async load(gameId, source, seed, levelIndex, { rebuild = false } = {}) {
       if (closed) throw Object.assign(new Error('pool closed'), { name: 'PoolClosedError' });
       let entry = gameToWorker.get(gameId);
       if (!entry) { entry = workers[rr++ % workers.length]; }
       gameToWorker.set(gameId, entry);
       entry.games.add(gameId);
       try {
-        return await call(entry, gameId, 'load', { source, seed, levelIndex }, compileMs);
+        return await call(entry, gameId, 'load', { source, seed, levelIndex, rebuild }, rebuild ? compileMs * REPLAY_BUDGET_SCALE : compileMs);
       } catch (e) {
         if (gameToWorker.get(gameId) === entry) { entry.games.delete(gameId); gameToWorker.delete(gameId); }
         throw e;
       }
     },
-    apply(gameId, actions) { return call(entryFor(gameId), gameId, 'apply', { actions }, inputMs); },
+    // replays inputs from the log, so it is only ever part of a rebuild
+    apply(gameId, actions) { return call(entryFor(gameId), gameId, 'apply', { actions }, inputMs * REPLAY_BUDGET_SCALE); },
     input(gameId, action) { return call(entryFor(gameId), gameId, 'input', { action }, inputMs); },
     // {applied, snapshot, gif}: one move, the picture it leaves, and with animate an animation of its
     // again turns (null when the move took a single turn or the animation could not be made)

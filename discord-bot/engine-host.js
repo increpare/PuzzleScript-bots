@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const crypto = require('node:crypto');
 
 const SRC_DIR = path.join(__dirname, '..', 'src');
 const ENGINE_FILES = [
@@ -110,6 +111,7 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
     get errorCount() { return errorCount; },
     get STRIDE_OBJ() { return STRIDE_OBJ; },
     get RandomGen() { return RandomGen; },
+    get restartTarget() { return restartTarget; },
     set unitTesting(v) { unitTesting = v; },
     set lazyFunctionGeneration(v) { lazyFunctionGeneration = v; },
   })`, ctx);
@@ -136,7 +138,8 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
     return ctx.stripHTMLTags(String(s));
   }
 
-  function load(source, seed, levelIndex) {
+  // rebuild: the game is being brought back from its input log, which allows the longer replay budget
+  function load(source, seed, levelIndex, { rebuild = false } = {}) {
     gameSeed = String(seed);
     resetErrors();
     // Seeding asymmetry: the first level is seeded with the raw game seed (matching the
@@ -149,7 +152,7 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
     }
     if (ps.errorCount > 0) throw new CompileError(firstError());
     if (!ps.state || !ps.state.levels || ps.state.levels.length === 0) throw new CompileError('game has no levels');
-    begin(false);
+    begin(false, rebuild ? REPLAY_BUDGET_SCALE : 1);
     try { drainAgain(); } finally { end(); }
     const md = ps.state.metadata || {};
     return {
@@ -172,6 +175,8 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
   // Why the last chain stopped while the engine still wanted another turn: 'loop' (a state came
   // round again, so it would never end) or 'more' (it reached the step cap). null when it ended.
   let pending = null;
+  // Whether a loop closed on the first state of its chain, so that its frames can simply be repeated.
+  let loopIsWhole = false;
   let lastFrames = null;
 
   function begin(capture, budgetScale = 1) {
@@ -187,7 +192,7 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
     const interval = Number(md.again_interval);
     lastFrames = {
       list: c.list,
-      loop: pending !== null,
+      loop: pending === 'loop' && loopIsWhole,
       intervalMs: Number.isFinite(interval) && interval > 0 ? Math.round(interval * 1000) : DEFAULT_AGAIN_INTERVAL_MS,
       stride: ps.STRIDE_OBJ,
       objectCount: ps.state.objectCount,
@@ -197,24 +202,24 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
     };
   }
 
-  // Everything the next turn depends on, folded into one 53-bit number: the level, pending
-  // movements, which level it is, and the random generator. Two different states colliding would
-  // cut a chain short, so two independent 32-bit hashes are combined.
+  // A digest of everything the next turn depends on: which level it is, the level itself, pending
+  // movements, the random generator, and the state a restart command would return to. Two different
+  // states sharing a key would cut a chain short, so this is a real digest and not a quick hash.
   function stateKey() {
-    let h1 = 0x811c9dc5 | 0, h2 = 0x1b873593 | 0;
-    const mix = (v) => {
-      h1 = Math.imul(h1 ^ v, 0x01000193);
-      h2 = Math.imul((h2 + v) | 0, 0x85ebca6b) ^ (h2 >>> 13);
-    };
-    mix(ps.curlevel | 0);
+    const bytes = (a) => Buffer.from(a.buffer, a.byteOffset, a.byteLength);
+    const h = crypto.createHash('sha256');
+    h.update(String(ps.curlevel | 0));
     const level = ps.level;
-    const o = (level && level.objects) || [];
-    for (let i = 0; i < o.length; i++) mix(o[i]);
-    const m = (level && level.movements) || [];
-    for (let i = 0; i < m.length; i++) mix(m[i]);
+    if (level && level.objects) h.update(bytes(level.objects));
+    h.update('|');
+    if (level && level.movements) h.update(bytes(level.movements));
+    h.update('|');
     const r = ps.RandomGen && ps.RandomGen._state;
-    if (r && r.s) { mix(r.i); mix(r.j); for (let i = 0; i < r.s.length; i++) mix(r.s[i]); }
-    return (h1 >>> 0) * 0x200000 + ((h2 >>> 0) & 0x1fffff);
+    if (r && r.s) h.update(Buffer.from([r.i, r.j, ...r.s]));
+    h.update('|');
+    const target = ps.restartTarget;
+    if (target && target.dat) h.update(bytes(ArrayBuffer.isView(target.dat) ? target.dat : Int32Array.from(target.dat)));
+    return h.digest('base64');
   }
 
   function sameFrame(a, b) {
@@ -259,8 +264,12 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
   // and its inputs, never on timing, so replaying the input log stops in the same place.
   function drainAgain() {
     pending = null;
+    loopIsWhole = false;
     if (!ps.againing) return;
-    const seen = new Set([stateKey()]);
+    const first = stateKey();
+    // the state the chain starts from is only among the frames if this call has already drawn it
+    const firstWasCaptured = !!(call && call.capture && call.capture.ok && call.capture.list.length > 0);
+    const seen = new Set([first]);
     let n = 0;
     while (ps.againing) {
       if (n >= stepCap) { pending = 'more'; return; }
@@ -270,7 +279,12 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
       if (ps.againing) {
         const key = stateKey();
         // the repeated state is where the loop closes: it is already on screen, so do not count it again
-        if (seen.has(key)) { if (onStep) onStep(); pending = 'loop'; return; }
+        if (seen.has(key)) {
+          if (onStep) onStep();
+          pending = 'loop';
+          loopIsWhole = key === first && firstWasCaptured;
+          return;
+        }
         seen.add(key);
       }
       afterStep();
@@ -472,4 +486,4 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
   };
 }
 
-module.exports = { createHost, CompileError, EngineError, MoveTooLongError };
+module.exports = { createHost, CompileError, EngineError, MoveTooLongError, REPLAY_BUDGET_SCALE };

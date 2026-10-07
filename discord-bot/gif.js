@@ -49,6 +49,8 @@ function lzw(minCodeSize, indices) {
     prefix = k;
   }
   emit(prefix);
+  // A reader adds a table entry for this last code too, and may widen its codes before the end code.
+  if (next < 4096 && ++next > (1 << codeSize) && codeSize < 12) codeSize++;
   emit(eoi);
   if (accBits > 0) { block.push(acc & 0xff); if (block.length === 255) flushBlock(); }
   flushBlock();
