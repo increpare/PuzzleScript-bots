@@ -1,0 +1,13 @@
+{
+  "name": "puzzlescript-twitch-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Twitch plays PuzzleScript",
+  "main": "main.js",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node --test",
+    "start": "node main.js",
+    "index-music": "node index-music.js"
+  }
+}
