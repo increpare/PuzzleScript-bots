@@ -8,6 +8,7 @@ const INPUTS = new Map([
   ['action', 'action'], ['a', 'action'], ['x', 'action'],
   ['undo', 'undo'], ['z', 'undo'],
   ['restart', 'restart'], // no single letter: it wipes the level
+  ['go', 'continue'], // gets past a message screen, and does nothing anywhere else
 ]);
 
 // Third-party chat clients append invisible characters (zero-width and other format characters, and

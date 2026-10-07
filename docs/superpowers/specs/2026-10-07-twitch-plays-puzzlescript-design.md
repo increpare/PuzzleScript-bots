@@ -81,6 +81,7 @@ ordinary chat never moves the player.
 | action | `action`, `a`, `x` |
 | undo | `undo`, `z` |
 | restart | `restart` only (it wipes the level) |
+| continue past a message | `go` |
 | vote to skip the game | `!skip` |
 
 A single leading `!` is allowed on input commands (`!up`). Invisible format
@@ -118,8 +119,10 @@ limit 3 s, as in the Discord bot) and everything chat does to it.
   more are dropped. The queue is emptied whenever the level changes or a
   message screen appears, so moves aimed at the old screen do not spill into
   the new one.
-- **Message screens** stay up for at least 4 s. After that, any move or
-  action dismisses them.
+- **Message screens** wait for `go`. Nothing else gets past one, so moves
+  typed for the screen before cannot skip it, and `go` does nothing anywhere
+  else. The message shows "type 'go' to continue" and the command list
+  shows `go` while it is up.
 - **Move log**: the last 12 applied commands with the login that sent them.
   Commands the game refuses (undo in a `noundo` game, and so on) are not
   logged.
@@ -245,7 +248,7 @@ deployment in `~/puzzlescript-bot/`.
 
 - Unit tests (`node --test`) with fakes for the pool, the clock and child
   processes: command parsing; rotation order, skipping and progress; session
-  queueing, message hold, log, votes and idle; frame composition checked at
+  queueing, messages and `go`, log, votes and idle; frame composition checked at
   known pixels, including the brick fallback; music shuffle and decoder
   handover; encoder frame pacing, audio budgeting, backpressure and restart.
 - Tests for `frameTiles()` and the pool `tiles` operation beside the existing

@@ -16,6 +16,7 @@ Needs, on the Pi: node 18 or later, and ffmpeg (with libx264) and ffprobe.
 | `action`, `a` or `x` | action |
 | `undo` or `z` | undo |
 | `restart` | restart the level |
+| `go` | continue past a message |
 | `!skip` | vote for the next game |
 
 Any case. The whole message has to be the command. A leading `!` also works

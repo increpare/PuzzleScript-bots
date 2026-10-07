@@ -2973,4 +2973,7 @@ finished suites are 129 tests in `twitch-bot/` and 78 in `discord-bot/`.
   Commands padded with invisible characters are accepted. The chat reconnect
   delay resets only after a connection has lasted 30 s. `deploy.sh` prints
   the journal when the service fails to start.
+- **After the first live test:** message screens are continued with `go`
+  (shown on the message itself) instead of by any move after a 4-second hold,
+  which nothing on screen explained.
 

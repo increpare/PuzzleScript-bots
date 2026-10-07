@@ -129,22 +129,29 @@ test('at most 30 commands wait', async () => {
   assert.equal(h.pool.calls.filter((c) => c[0] === 'input').length, 30);
 });
 
-test('a message stays up 4 seconds, then any move or action dismisses it', async () => {
+test('only go gets past a message, and it works straight away', async () => {
   const h = setup({ g1: { title: 'Msg', screens: ['message', 'level'] } });
   await h.session.start();
   assert.equal(h.session.view().snapshot.kind, 'message');
-  h.clock.t += 3999;
-  h.say('pip', 'a');
+  for (const text of ['u', 'a', 'undo', 'restart']) h.say('pip', text);
   await h.session.idle();
   assert.equal(h.session.view().snapshot.kind, 'message');
-  h.clock.t += 1;
-  h.say('pip', 'undo');
-  await h.session.idle();
-  assert.equal(h.session.view().snapshot.kind, 'message');
-  h.say('pip', 'u');
+  assert.deepEqual(h.session.view().moves, []);
+  assert.equal(h.pool.calls.filter((c) => c[0] === 'input').length, 0, 'nothing but go reaches the game during a message');
+  h.say('mo', 'go');
   await h.session.idle();
   assert.equal(h.session.view().snapshot.kind, 'level');
-  assert.deepEqual(h.session.view().moves, [{ action: 'continue', user: 'pip' }]);
+  assert.deepEqual(h.session.view().moves, [{ action: 'continue', user: 'mo' }]);
+});
+
+test('go does nothing on a level', async () => {
+  const h = setup({ g1: LEVELS3 });
+  await h.session.start();
+  h.say('pip', 'go');
+  await h.session.idle();
+  assert.deepEqual(h.session.view().moves, []);
+  assert.equal(h.pool.calls.filter((c) => c[0] === 'input').length, 0);
+  assert.equal(h.session.view().snapshot.levelIndex, 0);
 });
 
 test('queued commands are dropped when the level changes', async () => {

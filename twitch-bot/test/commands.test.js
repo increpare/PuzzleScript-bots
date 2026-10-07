@@ -56,3 +56,11 @@ test('a message of only invisible characters is not a command', () => {
 test('invisible characters do not turn ordinary chat into a command', () => {
   for (const t of ['up​ up', 'up \u{E0000} up', 'go​up', '!!up​', '\u{E0000}skip']) assert.equal(parseCommand(t), null, JSON.stringify(t));
 });
+
+test('go continues past a message', () => {
+  assert.deepEqual(parseCommand('go'), { type: 'input', action: 'continue' });
+  assert.deepEqual(parseCommand(' GO '), { type: 'input', action: 'continue' });
+  assert.deepEqual(parseCommand('!go'), { type: 'input', action: 'continue' });
+  assert.equal(parseCommand("let's go"), null);
+  assert.equal(parseCommand('go up'), null);
+});

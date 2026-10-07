@@ -2,9 +2,8 @@
 const { parseCommand } = require('./commands');
 
 const MAX_QUEUE = 30, LOG_SIZE = 12;
-const MESSAGE_HOLD_MS = 4000, FINISHED_HOLD_MS = 10000, IDLE_MS = 15 * 60 * 1000;
+const FINISHED_HOLD_MS = 10000, IDLE_MS = 15 * 60 * 1000;
 const ACTIVE_MS = 10 * 60 * 1000, MAX_SKIPS = 10, RETRY_MS = 60000;
-const DISMISSERS = ['up', 'down', 'left', 'right', 'action'];
 const BACK_SOON = { kind: 'message', message: 'back soon', levelIndex: 0, levelCount: 0, background: '#000000', textColor: '#ffffff' };
 
 const skip = (why) => Object.assign(new Error(why), { name: 'SkipError' });
@@ -16,7 +15,7 @@ function createSession({ pool, getSource, rotation, now = Date.now, onChange = (
   let counter = 0, gameId = null, entry = null, meta = null, snapshot = BACK_SOON, tiles = null;
   let queue = [], moves = [], votes = new Set();
   const activity = new Map(); // login -> when their last command was applied
-  let lastApplied = 0, messageSince = 0, finishedAt = 0, retryAt = 0;
+  let lastApplied = 0, finishedAt = 0, retryAt = 0;
   let chain = Promise.resolve(), pumping = false, switching = false;
 
   function run(fn) {
@@ -68,7 +67,6 @@ function createSession({ pool, getSource, rotation, now = Date.now, onChange = (
           gameId = g.id; entry = e; meta = g.meta; snapshot = g.snapshot; tiles = g.tiles;
           moves = [];
           lastApplied = now();
-          messageSince = now();
           phase = 'playing';
           onChange();
           return;
@@ -104,11 +102,10 @@ function createSession({ pool, getSource, rotation, now = Date.now, onChange = (
   }
 
   async function applyOne(item) {
-    let action = item.action;
-    if (snapshot.kind === 'message') {
-      if (now() - messageSince < MESSAGE_HOLD_MS || !DISMISSERS.includes(action)) return;
-      action = 'continue';
-    }
+    const action = item.action;
+    // A message waits for "go" and nothing else gets past it, so moves typed for the screen
+    // before cannot skip it; "go" means nothing anywhere else.
+    if ((snapshot.kind === 'message') !== (action === 'continue')) return;
     if (!(await pool.input(gameId, action))) return;
     const prev = snapshot;
     snapshot = await pool.snapshot(gameId);
@@ -123,7 +120,6 @@ function createSession({ pool, getSource, rotation, now = Date.now, onChange = (
       persist('clear the saved level', () => rotation.clearLevel(entry.gistId));
     } else {
       const newMessage = snapshot.kind === 'message' && (prev.kind !== 'message' || snapshot.levelIndex !== prev.levelIndex);
-      if (newMessage) messageSince = now();
       // moves typed at the old screen must not spill into the new one
       if (newMessage || snapshot.levelIndex !== prev.levelIndex) queue = [];
       if (snapshot.levelIndex > prev.levelIndex) persist('save the level reached', () => rotation.saveLevel(entry.gistId, snapshot.levelIndex));

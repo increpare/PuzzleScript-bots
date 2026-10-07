@@ -140,3 +140,18 @@ test('message, finished and back-soon screens compose without a game', () => {
 test('the same view always gives the same picture', () => {
   assert.ok(same(composeFrame(view()), composeFrame(view())));
 });
+
+test('a message says how to continue, in the window and in the command list', () => {
+  const message = { kind: 'message', message: 'hello there', levelIndex: 0, levelCount: 3, background: '#000000', textColor: '#ffffff' };
+  const prompting = composeFrame(view({ snapshot: message }));
+  // the last text row of the game window (y 277 to 301) carries the hint, in the message's own colour
+  assert.ok(count(prompting, [255, 255, 255], 10, 277, 410, 301) > 100, 'hint under the message');
+  // with no game on screen ("back soon") there is nothing to continue
+  const idle = composeFrame(view({ snapshot: message, meta: null, tiles: null }));
+  assert.equal(count(idle, [255, 255, 255], 10, 277, 410, 301), 0);
+  // the command list offers go instead of moves that would do nothing
+  const level = composeFrame(view());
+  const listPixels = (img) => count(img, [204, 204, 204], 420, 297, 630, 350);
+  assert.ok(listPixels(prompting) > 0);
+  assert.ok(listPixels(prompting) < listPixels(level) / 3, 'one short word instead of three lines of commands');
+});

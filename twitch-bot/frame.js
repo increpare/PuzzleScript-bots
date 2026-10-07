@@ -5,6 +5,7 @@ const WIDTH = 640, HEIGHT = 360, TILE = 10;
 const GAME_X = 10, GAME_Y = 10, GAME_W = 400;
 const PANEL_X = 420, PANEL_W = 210;
 const LOG_ROWS = 12, NAME_CHARS = 30;
+const GO_HINT = "type 'go' to continue";
 
 // The default PuzzleScript palette.
 const C = { black: '#000000', white: '#ffffff', lightgrey: '#cccccc', grey: '#9d9d9d', darkgrey: '#697175', yellow: '#f7e26b', lightblue: '#b2dcef', pink: '#de65e2' };
@@ -23,7 +24,7 @@ const ICONS = {
   undo: icon(['.0...', '0000.', '.0..0', '....0', '.000.']),
   restart: icon(['0000.', '0..0.', '0000.', '0.0..', '0..0.']),
 };
-ICONS.continue = ICONS.action;
+ICONS.continue = icon(['0....', '000..', '00000', '000..', '0....']);
 
 function drawSprite(img, x, y, sprite, scale) {
   for (let r = 0; r < 5; r++) {
@@ -80,6 +81,9 @@ function composeFrame({ snapshot, tiles, meta, moves = [], votes = { count: 0, n
   for (let ty = 1; ty < 35; ty++) { wall(0, ty); wall(63, ty); if (ty !== 31) wall(41, ty); }
 
   blit(img, snapshot.kind === 'level' ? renderLevelRGBA(snapshot) : renderTextRGBA(snapshot), GAME_X, GAME_Y);
+  // A game's message waits for "go". The message text never uses the last of its eleven rows.
+  const prompting = snapshot.kind === 'message' && Boolean(meta);
+  if (prompting) drawText(img, GAME_X + Math.floor((GAME_W - chars(GO_HINT) * 12) / 2), GAME_Y + 267, GO_HINT, snapshot.textColor || C.white, 2);
 
   // title strip
   // Players count levels without the message screens. The "back soon" snapshot and older ones
@@ -117,13 +121,16 @@ function composeFrame({ snapshot, tiles, meta, moves = [], votes = { count: 0, n
 
   const flags = (meta && meta.flags) || {};
   const words = ['action', 'undo', 'restart'].filter((w) => !flags['no' + w]);
-  const help = ['up down left right'];
-  if (words.length) help.push(words.join(' '));
-  help.push('or just: u d l r' + (flags.noaction ? '' : ' a') + (flags.noundo ? '' : ' z'));
+  const help = [];
+  if (prompting) help.push('go');
+  else {
+    help.push('up down left right');
+    if (words.length) help.push(words.join(' '));
+    help.push('or just: u d l r' + (flags.noaction ? '' : ' a') + (flags.noundo ? '' : ' z'));
+  }
   help.push(votes.count > 0 ? '!skip next game (' + votes.count + '/' + votes.needed + ')' : '!skip votes next game');
   drawText(img, PANEL_X + 8, 284, 'type in chat:', C.lightblue);
-  const top = 349 - help.length * 13;
-  help.forEach((line, i) => drawText(img, PANEL_X + 8, top + i * 13, line, i === help.length - 1 ? C.grey : C.lightgrey));
+  help.forEach((line, i) => drawText(img, PANEL_X + 8, 297 + i * 13, line, i === help.length - 1 ? C.grey : C.lightgrey));
 
   return img;
 }
