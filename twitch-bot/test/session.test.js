@@ -37,16 +37,18 @@ function fakePool() {
   };
 }
 
+// Add a method name to `failing` and that method throws (as a failed JSON write would) until removed.
 function fakeRotation(entries, saved = {}) {
   let pos = 0;
-  const calls = [];
+  const calls = [], failing = new Set();
+  const guard = (name) => { if (failing.has(name)) throw new Error('disk full (' + name + ')'); };
   return {
-    calls, saved,
+    calls, saved, failing,
     current: () => entries[pos % entries.length],
-    advance() { pos++; return entries[pos % entries.length]; },
+    advance() { guard('advance'); pos++; return entries[pos % entries.length]; },
     savedLevel: (id) => saved[id] || 0,
-    saveLevel(id, level) { saved[id] = level; calls.push(['save', id, level]); },
-    clearLevel(id) { delete saved[id]; calls.push(['clear', id]); },
+    saveLevel(id, level) { guard('saveLevel'); saved[id] = level; calls.push(['save', id, level]); },
+    clearLevel(id) { guard('clearLevel'); delete saved[id]; calls.push(['clear', id]); },
   };
 }
 
@@ -308,4 +310,71 @@ test('a game that fails mid-play is dropped for the next one', async () => {
   await h.session.idle();
   assert.equal(h.session.view().entry.gistId, 'g2');
   assert.equal(h.session.view().phase, 'playing');
+});
+
+test('if the game order cannot be advanced it shows back soon, then retries a minute later', async () => {
+  const h = setup({ g1: LEVELS3, g2: LEVELS3 });
+  await h.session.start();
+  h.rotation.failing.add('advance');
+  h.say('pip', '!skip');
+  await h.session.idle();
+  const v = h.session.view();
+  assert.equal(v.phase, 'waiting');
+  assert.equal(v.snapshot.message, 'back soon');
+  assert.equal(v.entry, null);
+  h.clock.t += 59999;
+  h.session.tick();
+  await h.session.idle();
+  assert.equal(h.session.view().phase, 'waiting');
+  h.rotation.failing.delete('advance');
+  h.clock.t += 1;
+  h.session.tick();
+  await h.session.idle();
+  assert.equal(h.session.view().phase, 'playing');
+  assert.equal(h.session.view().snapshot.kind, 'level');
+});
+
+test('a failed progress save does not abandon the game', async () => {
+  const h = setup({ g1: LEVELS3, g2: LEVELS3 });
+  await h.session.start();
+  h.rotation.failing.add('saveLevel');
+  h.say('pip', 'right');
+  await h.session.idle();
+  const v = h.session.view();
+  assert.equal(v.phase, 'playing');
+  assert.equal(v.entry.gistId, 'g1');
+  assert.equal(v.snapshot.levelIndex, 1);
+  assert.deepEqual(v.moves, [{ action: 'right', user: 'pip' }]);
+  assert.equal(h.pool.calls.filter((c) => c[0] === 'drop').length, 0);
+});
+
+test('a failed progress clear on a win still shows the finished screen for 10 seconds', async () => {
+  const h = setup({ g1: { title: 'One', screens: ['level'] }, g2: LEVELS3 });
+  await h.session.start();
+  h.rotation.failing.add('clearLevel');
+  const before = h.changes();
+  h.say('pip', 'right');
+  await h.session.idle();
+  assert.equal(h.session.view().phase, 'finished');
+  assert.equal(h.session.view().snapshot.kind, 'finished');
+  assert.ok(h.changes() > before);
+  h.clock.t += 9999;
+  h.session.tick();
+  await h.session.idle();
+  assert.equal(h.session.view().entry.gistId, 'g1');
+  assert.equal(h.session.view().phase, 'finished');
+  h.clock.t += 1;
+  h.session.tick();
+  await h.session.idle();
+  assert.equal(h.session.view().entry.gistId, 'g2');
+  assert.equal(h.session.view().phase, 'playing');
+});
+
+test('a failed progress clear while loading still starts the game over', async () => {
+  const h = setup({ g1: { title: 'Short', screens: ['level', 'level'] } }, { g1: 5 });
+  h.rotation.failing.add('clearLevel');
+  await h.session.start();
+  assert.equal(h.session.view().phase, 'playing');
+  assert.equal(h.session.view().entry.gistId, 'g1');
+  assert.equal(h.session.view().snapshot.levelIndex, 0);
 });

@@ -24,6 +24,12 @@ function createSession({ pool, getSource, rotation, now = Date.now, onChange = (
     return chain;
   }
 
+  // Remembering progress is a convenience: a failed write (disk full, permissions) is logged and
+  // the game carries on rather than being abandoned.
+  function persist(what, fn) {
+    try { fn(); } catch (err) { log('could not ' + what + ': ' + (err && err.message)); }
+  }
+
   async function loadGame(e) {
     const source = await getSource(e.gistId);
     const id = 'tw' + (++counter);
@@ -34,7 +40,7 @@ function createSession({ pool, getSource, rotation, now = Date.now, onChange = (
       let snap = await pool.snapshot(id);
       if (level > 0 && snap.kind === 'finished') {
         // the saved level is past the end (the game was edited): start over
-        rotation.clearLevel(e.gistId);
+        persist('clear the saved level', () => rotation.clearLevel(e.gistId));
         m = await pool.load(id, source, id, 0);
         snap = await pool.snapshot(id);
       }
@@ -46,28 +52,34 @@ function createSession({ pool, getSource, rotation, now = Date.now, onChange = (
     }
   }
 
+  // Always ends in 'playing' or 'waiting', never stuck in 'loading': tick() retries from 'waiting'.
   async function switchGame(advance) {
     phase = 'loading';
     queue = [];
     votes = new Set();
     const old = gameId;
     gameId = null;
-    if (old) await pool.drop(old).catch(() => {});
-    let e = advance ? rotation.advance() : rotation.current();
-    for (let skips = 0; skips < MAX_SKIPS; skips++) {
-      try {
-        const g = await loadGame(e);
-        gameId = g.id; entry = e; meta = g.meta; snapshot = g.snapshot; tiles = g.tiles;
-        moves = [];
-        lastApplied = now();
-        messageSince = now();
-        phase = 'playing';
-        onChange();
-        return;
-      } catch (err) {
-        log('skipping ' + e.title + ': ' + (err && err.name) + ' ' + (err && err.message));
-        e = rotation.advance();
+    try {
+      if (old) await pool.drop(old).catch(() => {});
+      let e = advance ? rotation.advance() : rotation.current();
+      for (let skips = 0; skips < MAX_SKIPS; skips++) {
+        try {
+          const g = await loadGame(e);
+          gameId = g.id; entry = e; meta = g.meta; snapshot = g.snapshot; tiles = g.tiles;
+          moves = [];
+          lastApplied = now();
+          messageSince = now();
+          phase = 'playing';
+          onChange();
+          return;
+        } catch (err) {
+          log('skipping ' + e.title + ': ' + (err && err.name) + ' ' + (err && err.message));
+          e = rotation.advance();
+        }
       }
+    } catch (err) {
+      // the game order itself could not be read or saved
+      log('could not choose the next game: ' + (err && err.name) + ' ' + (err && err.message));
     }
     // nothing loads (GitHub is probably unreachable): show a holding screen and try again later
     entry = null; meta = null; snapshot = BACK_SOON; tiles = null; moves = [];
@@ -108,13 +120,13 @@ function createSession({ pool, getSource, rotation, now = Date.now, onChange = (
       phase = 'finished';
       finishedAt = now();
       queue = [];
-      rotation.clearLevel(entry.gistId);
+      persist('clear the saved level', () => rotation.clearLevel(entry.gistId));
     } else {
       const newMessage = snapshot.kind === 'message' && (prev.kind !== 'message' || snapshot.levelIndex !== prev.levelIndex);
       if (newMessage) messageSince = now();
       // moves typed at the old screen must not spill into the new one
       if (newMessage || snapshot.levelIndex !== prev.levelIndex) queue = [];
-      if (snapshot.levelIndex > prev.levelIndex) rotation.saveLevel(entry.gistId, snapshot.levelIndex);
+      if (snapshot.levelIndex > prev.levelIndex) persist('save the level reached', () => rotation.saveLevel(entry.gistId, snapshot.levelIndex));
     }
     onChange();
   }
