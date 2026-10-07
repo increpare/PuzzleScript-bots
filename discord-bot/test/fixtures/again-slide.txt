@@ -1,0 +1,61 @@
+title again slide
+author test
+
+========
+OBJECTS
+========
+
+Background
+black
+
+Wall
+grey
+
+Player
+red
+
+Puck
+blue
+
+Sliding
+lightblue
+
+=======
+LEGEND
+=======
+
+. = Background
+# = Wall
+P = Player
+K = Puck
+
+=======
+SOUNDS
+=======
+
+================
+COLLISIONLAYERS
+================
+
+Background
+Player, Wall, Puck, Sliding
+
+======
+RULES
+======
+
+[ > Player | Puck ] -> [ Player | Sliding ]
+[ Sliding ] -> [ right Sliding ] again
+
+==============
+WINCONDITIONS
+==============
+
+=======
+LEVELS
+=======
+
+#########
+#PK.....#
+#########
+
