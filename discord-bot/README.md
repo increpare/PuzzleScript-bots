@@ -53,8 +53,9 @@ point. When a change alters what the bot keeps about people, change the privacy 
 
 A move that sets off `again` turns is shown as one animated GIF, a frame per turn at the game's
 `again_interval`. A chain that ends plays once and rests on the final state (its first frame is the
-final state for one blink, so a client that shows GIFs as stills still shows the right board, and
-its last frame is held for the longest a GIF allows in case a viewer loops it anyway).
+final state for one blink, so a client that shows GIFs as stills still shows the right board).
+The GIF omits the loop extension and uses normal frame delays, including the final picture;
+an artificial long pause could make Discord's duration-limited conversion discard that picture.
 
 - **Loops.** Some games animate for ever on purpose (an explosion that keeps flickering after you
   lose). The chain is stopped as soon as a state repeats, the GIF loops, and only undo and restart

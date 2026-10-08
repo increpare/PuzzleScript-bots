@@ -50,8 +50,8 @@ test('a chain that ends plays once: the final state first for a blink, each turn
   assert.ok(!same(shown[1], final), 'then the first turn');
   for (let i = 1; i < shown.length - 1; i++) assert.ok(!same(shown[i], shown[i + 1]), 'each turn changes the picture');
   assert.ok(same(shown[shown.length - 1], final), 'and it comes to rest on the final state');
-  assert.deepEqual(gif.frames.slice(1).map((f) => f.delayCs), [15, 15, 15, 15, 65535],
-    'the last frame is held as long as a GIF allows, so a viewer that loops regardless still rests on it');
+  assert.deepEqual(gif.frames.slice(1).map((f) => f.delayCs), [15, 15, 15, 15, 15],
+    'the final turn has a normal delay; the non-looping GIF stays on it');
 });
 
 test('turns after the first only redraw what changed', () => {
@@ -79,7 +79,7 @@ test('a loop plays for ever, one pass around it', () => {
 
 test('the delay follows again_interval, held longer for turns that looked the same, and never under 20 ms', () => {
   const fast = slide('again_interval 0.005');
-  assert.deepEqual(decodeGIF(buildAnimation(fast)).frames.slice(1, -1).map((f) => f.delayCs), [2, 2, 2, 2]);
+  assert.deepEqual(decodeGIF(buildAnimation(fast)).frames.slice(1).map((f) => f.delayCs), [2, 2, 2, 2, 2]);
   const held = slide();
   held.frames.list[1].repeat = 3;
   assert.equal(decodeGIF(buildAnimation(held)).frames[2].delayCs, 45);
@@ -94,7 +94,7 @@ test('a chain that ends on a message screen rests on the message', () => {
   assert.ok(same(shown[0], text));
   assert.ok(same(shown[shown.length - 1], text));
   assert.equal(gif.frames.length, 7, 'the blink, five turns, then the message');
-  assert.equal(gif.frames[6].delayCs, 65535);
+  assert.equal(gif.frames[6].delayCs, 2);
   assert.equal(gif.frames[5].delayCs, 15, 'the last turn is shown for its own interval before the message');
 });
 
@@ -128,7 +128,7 @@ test('a move that raises a message and starts a loop plays once and rests on the
   const text = rgbOf(renderTextRGBA(base));
   assert.ok(same(shown[0], text));
   assert.ok(same(shown[shown.length - 1], text));
-  assert.equal(gif.frames[gif.frames.length - 1].delayCs, 65535);
+  assert.equal(gif.frames[gif.frames.length - 1].delayCs, 2);
 });
 
 test('a loop reached through a lead-in plays once, the lead-in and one pass round, and rests where the game was left', () => {
@@ -139,11 +139,36 @@ test('a loop reached through a lead-in plays once, the lead-in and one pass roun
   host.dispose();
   const gif = decodeGIF(buildAnimation({ base, frames }));
   assert.equal(gif.loop, false);
-  assert.equal(gif.frames.length, 7, 'the blink, two fuse turns, three explosion turns, and the state to rest on');
+  assert.equal(gif.frames.length, 7, 'the blink, two fuse turns, three explosion turns, and the final state');
   const shown = play(gif);
   const rest = rgbOf(renderLevelRGBA(base));
   assert.ok(same(shown[0], rest));
   assert.ok(same(shown[6], rest));
   assert.ok(same(shown[6], shown[3]), 'it rests on the first state of the loop');
-  assert.equal(gif.frames[6].delayCs, 65535);
+  assert.equal(gif.frames[6].delayCs, 2);
+});
+
+// Discord's Lilliput checks cumulative duration before encoding the current frame:
+// https://github.com/discord/lilliput/blob/master/ops.go (ImageOps.Transform).
+function truncateDuration(gif, limitCs) {
+  let duration = 0;
+  return { ...gif, frames: gif.frames.filter((f) => (duration += f.delayCs) <= limitCs) };
+}
+
+test('duration-limited conversion still ends on the settled board', () => {
+  const { frames, base } = slide();
+  const gif = decodeGIF(buildAnimation({ base, frames }));
+  const converted = truncateDuration(gif, 1000);
+  assert.equal(converted.frames.length, gif.frames.length, 'no artificial long hold exceeds the conversion budget');
+  const shown = play(converted);
+  assert.ok(same(shown.at(-1), rgbOf(renderLevelRGBA(base))),
+    'duration-limited conversion must retain the settled board');
+});
+
+test('duration-limited conversion keeps a final message after an animation', () => {
+  const { frames, base } = slide();
+  const message = { ...base, kind: 'message', message: 'well done' };
+  const shown = play(truncateDuration(decodeGIF(buildAnimation({ base: message, frames })), 1000));
+  assert.ok(same(shown.at(-1), rgbOf(renderTextRGBA(message))),
+    'duration-limited conversion must retain the final message');
 });
