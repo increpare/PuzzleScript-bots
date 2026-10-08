@@ -44,10 +44,14 @@ test('workshop settings: no channel by default, and labs beside the bot', () => 
   let cfg = loadConfig(file);
   assert.equal(cfg.workshopChannelId, null);
   assert.equal(cfg.gistToken, null);
+  assert.equal(cfg.workshopShareChannelId, null);
   assert.equal(cfg.labsDir, path.join(dir, '..', 'labs'));
   fs.writeFileSync(file, base + 'WORKSHOP_CHANNEL_ID=555\nLABS_DIR=/somewhere/labs\nGIST_TOKEN=gh\n');
   cfg = loadConfig(file);
   assert.equal(cfg.workshopChannelId, '555');
+  assert.equal(cfg.workshopShareChannelId, '555'); // shared games are started in the workshop unless told otherwise
   assert.equal(cfg.gistToken, 'gh');
+  fs.writeFileSync(file, base + 'WORKSHOP_CHANNEL_ID=555\nWORKSHOP_SHARE_CHANNEL_ID=777\n');
+  assert.equal(loadConfig(file).workshopShareChannelId, '777');
   assert.equal(cfg.labsDir, '/somewhere/labs');
 });

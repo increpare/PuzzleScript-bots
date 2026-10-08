@@ -106,19 +106,38 @@ async function main() {
   const workshopSaves = workshopHtml ? createWorkshopSaves({ dataDir: cfg.dataDir }) : null;
 
   // Share, in the workshop: the room's game becomes a public gist under the bot's own GitHub
-  // account, and its link is posted in the room. Without a token for that account there is no Share.
+  // account, and a game of it is started for people to play, as /play would start it. Without a
+  // token for that account there is no Share.
   const sharer = workshopHtml && cfg.gistToken ? createSharer({ token: cfg.gistToken }) : null;
   async function shareWorkshop(uid) {
     const made = await sharer.share(uid, workshopDoc.state().doc);
     if (!made.ok) return made;
+    const answer = { ok: true, playUrl: made.playUrl, editUrl: made.editUrl, where: null };
     try {
-      const channel = await client.channels.fetch(cfg.workshopChannelId);
+      const channel = await client.channels.fetch(cfg.workshopShareChannelId);
       // the mention shows who shared it without pinging them (the client allows no mentions)
-      await channel.send({ content: '<@' + uid + '> shared **' + escapeMarkdown(made.title.slice(0, 200)) + '** from the workshop:\n' + made.playUrl + '\nSource: <' + made.editUrl + '>' });
+      await channel.send({ content: '<@' + uid + '> shared **' + escapeMarkdown(made.title.slice(0, 200)) + '** from the workshop.' });
+      // A game is known by the id of its message, so the message has to exist before the game does.
+      const message = await channel.send({ content: 'Starting it…' });
+      answer.where = '#' + channel.name;
+      try {
+        const { record, snapshot } = await registry.start({ gameId: message.id, channelId: channel.id, gistId: made.id });
+        if (record.meta.flags.realtime) {
+          registry.markDead(record.gameId, 'realtime game');
+          await message.edit({ content: 'It is a realtime game, which cannot be played here. Play it at ' + made.playUrl });
+        } else {
+          await message.edit(frame(record, snapshot, null, tweakAllowed(cfg.tweakChannels, channel.id, channel.parentId || null), null));
+        }
+      } catch (e) {
+        // As the editor's own Share does for a game with errors: the source, and no game.
+        const why = e && e.name === 'CompileError' ? 'It does not compile yet, so it cannot be played here.' : 'It could not be started here.';
+        await message.edit({ content: why + ' Source: <' + made.editUrl + '>' });
+        if (!e || e.name !== 'CompileError') console.error('a shared game could not be started', e);
+      }
     } catch (e) {
-      console.error('a shared game could not be posted in the workshop', 'code', e && e.code);
+      console.error('a shared game could not be posted', 'code', e && e.code);
     }
-    return { ok: true, playUrl: made.playUrl, editUrl: made.editUrl };
+    return answer;
   }
 
   // The workshop's door: a message in its channel whose button opens the editor. It is posted once

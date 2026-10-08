@@ -42,6 +42,8 @@ function loadConfig(envPath = path.join(__dirname, '.env')) {
     // A GitHub token that may write gists, for the workshop's Share. It should belong to an account
     // of the bot's own: every gist shared from the workshop is made under it.
     gistToken: env.GIST_TOKEN || null,
+    // Where a game shared from the workshop is started for people to play. Unset: in the workshop.
+    workshopShareChannelId: env.WORKSHOP_SHARE_CHANNEL_ID || env.WORKSHOP_CHANNEL_ID || null,
   };
 }
 

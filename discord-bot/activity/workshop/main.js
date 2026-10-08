@@ -11,6 +11,7 @@
   const { EditorView, StateEffect, Transaction } = window.PuzzleScriptCM6Runtime;
   const { collab, getSyncedVersion, receiveUpdates, sendableUpdates, ChangeSet, Compartment } = window.PuzzleScriptWorkshopCollab;
   let session = null; // the bot's signed word for who is signed in; sent with every request
+  let discord = null; // Discord's SDK, once the page has found itself inside Discord
 
   function say(text) {
     try { consolePrint(text, true); } catch (e) { /* the editor's console is not up */ }
@@ -25,6 +26,22 @@
     const r = await fetch('api/' + name, { method, headers, body: body ? JSON.stringify(body) : undefined });
     return { status: r.status, body: await r.json().catch(() => null) };
   }
+
+  // Inside Discord's frame a link that leaves the page goes nowhere by itself: Discord has to be
+  // asked to open it. This covers the links the workshop prints and the editor's own, and sends the
+  // editor's links to its documentation, which is not part of the workshop, to the real pages.
+  document.addEventListener('click', (e) => {
+    const a = discord && e.target.closest ? e.target.closest('a[href]') : null;
+    if (!a) return;
+    const href = a.getAttribute('href');
+    if (/^(javascript:|#)/i.test(href)) return;
+    let url = new URL(href, location.href);
+    if (!/^https?:$/.test(url.protocol)) return;
+    if (url.origin === location.origin) url = new URL(url.pathname + url.search + url.hash, 'https://www.puzzlescript.net');
+    e.preventDefault();
+    discord.commands.openExternalLink({ url: url.href });
+  }, true);
+  const link = (url) => '<a target="_blank" href="' + url + '">' + url + '</a>';
 
   // The editor's own Share signs in to GitHub with a pop-up, which Discord's frame does not allow.
   // It is hidden until the bot says it can share for the room (offerShare).
@@ -47,7 +64,10 @@
       say('Workshop: sharing the game…');
       try {
         const r = await api('POST', 'workshop/share', {});
-        if (r.status === 200 && r.body && r.body.ok) say('Workshop: shared. The link has been posted in the channel: ' + r.body.playUrl);
+        if (r.status === 200 && r.body && r.body.ok) {
+          say('Workshop: shared.' + (r.body.where ? ' A game of it has been started in ' + r.body.where + '.' : '')
+            + '<br>It can be played at ' + link(r.body.playUrl) + '<br>Source: ' + link(r.body.editUrl));
+        }
         else say('Workshop: not shared (' + ((r.body && r.body.error) || 'the bot did not answer') + ').');
       } catch (err) {
         say('Workshop: not shared (the bot could not be reached).');
@@ -98,6 +118,7 @@
     }
     const clientId = location.hostname.split('.')[0];
     await sdk.ready();
+    discord = sdk;
     // The Activity is switched off for phones in the developer portal, so Discord should never open
     // it on one. If it does, say so and share nothing: the editor needs a keyboard and a big screen.
     if (sdk.platform === 'mobile') {
