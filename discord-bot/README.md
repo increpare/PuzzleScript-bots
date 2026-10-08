@@ -117,11 +117,6 @@ your own marker immediately, with a sending indicator until it is accepted. Sign
 to the document and wait briefly for your outstanding edits to sync. Failed sends show a visible
 notice on the marker and an explanation in the console.
 
-Temporary `Workshop signals [diag-1]` logging in the editor console and browser console reports
-right-button events, their region, timing and movement limits, and the send/broadcast stages. It
-does not log document text, identity or credentials. The `ready` line identifies this diagnostic
-build when investigating input that Discord does not appear to deliver.
-
 Workshop client scripts use content-versioned URLs so a new deployment fetches fresh code through
 Discord's proxy. The participant strip shows a persistent `Build` identifier, which remains visible
 after clearing the console or running a game, so users can verify which client release loaded.

@@ -20,15 +20,9 @@ window.WorkshopNavigation = {
     let previousClick = null;
     let self = { name: 'You', color: '#777777' };
     const ownRequests = new Map(); // request id -> delivery confirmed, retained beyond marker expiry
-    const loggedBroadcasts = new Set();
     let latestRequest = null;
 
     const escapeMessage = (text) => { const span = document.createElement('span'); span.textContent = text; return span.innerHTML; };
-    const diagnostic = (message) => {
-      const text = 'Workshop signals [diag-1]: ' + message;
-      console.info(text);
-      say(escapeMessage(text));
-    };
     const jump = (pos) => view.dispatch({ effects: EditorView.scrollIntoView(Math.max(0, Math.min(pos, view.state.doc.length)), { y: 'center' }) });
 
     function measure() {
@@ -97,10 +91,6 @@ window.WorkshopNavigation = {
 
     function showSignals(incoming) {
       for (const s of incoming) if (ownRequests.has(s.clientId)) {
-        if (!loggedBroadcasts.has(s.clientId)) {
-          diagnostic('broadcast received for your signal');
-          loggedBroadcasts.add(s.clientId);
-        }
         ownRequests.set(s.clientId, true);
       }
       const previous = new Map(view.state.field(signalsField).map((s) => [s.id, s]));
@@ -159,14 +149,12 @@ window.WorkshopNavigation = {
     }
 
     function signal(pos) {
-      diagnostic('gesture accepted; placing local marker at position=' + pos);
       const clientId = crypto.randomUUID();
       ownRequests.set(clientId, false);
       latestRequest = clientId;
       if (ownRequests.size > 64) {
         const oldest = ownRequests.keys().next().value;
         ownRequests.delete(oldest);
-        loggedBroadcasts.delete(oldest);
       }
       const syncDeadline = Date.now() + 5000;
       // A pending request is feedback, not yet a five-second broadcast. Allow time for sync
@@ -178,25 +166,20 @@ window.WorkshopNavigation = {
         const current = view.state.field(signalsField).find((s) => s.clientId === clientId);
         // A delivered broadcast can win the race against a lost POST response.
         if (clientId !== latestRequest || ownRequests.get(clientId) || (current && !current.local)) return;
-        diagnostic('delivery failed: ' + reason);
         replaceLocal(clientId, { pending: false, message: ' · not sent', until: Date.now() + 5000 });
         say(escapeMessage('Workshop: the signal was not sent (' + reason + ').'));
       }
-      let waitingLogged = false;
       function send() {
         const current = view.state.field(signalsField).find((s) => s.clientId === clientId);
         if (!current) return;
         if (pending().length) {
-          if (!waitingLogged) { diagnostic('waiting for local edits to sync'); waitingLogged = true; }
           if (Date.now() >= syncDeadline) return fail('your edits are still syncing; try again');
           setTimeout(send, 50);
           return;
         }
         const controller = new AbortController();
-        diagnostic('POST signal position=' + current.pos + ' version=' + version());
         const timeout = setTimeout(() => controller.abort(), 10000);
         api('POST', 'workshop/signal', { pos: current.pos, version: version(), clientId }, controller.signal).then((r) => {
-          diagnostic('POST response HTTP ' + r.status);
           if (r.status !== 200 || !r.body?.ok) return fail(r.body?.error || 'the bot did not answer');
           if (ownRequests.has(clientId)) ownRequests.set(clientId, true);
           // Keep the locally mapped position: edits may have arrived while the POST was in flight.
@@ -208,14 +191,6 @@ window.WorkshopNavigation = {
       send();
     }
 
-    // Diagnose the whole Activity frame, including events outside the listener's editor region.
-    // No document text, user identity or credentials are logged.
-    for (const type of ['pointerdown', 'mousedown', 'contextmenu']) window.addEventListener(type, (event) => {
-      if (event.button !== 2 && !(event.button === 0 && event.ctrlKey) && type !== 'contextmenu') return;
-      const region = view.scrollDOM.contains(event.target) ? 'code' : view.dom.contains(event.target) ? 'editor-controls' : 'outside-code';
-      diagnostic(type + ' button=' + event.button + ' ctrl=' + !!event.ctrlKey + ' shift=' + !!event.shiftKey + ' region=' + region + ' x=' + Math.round(event.clientX) + ' y=' + Math.round(event.clientY));
-    }, true);
-
     // Native/Discord context menus can swallow the second contextmenu event. Detect
     // presses instead and reserve unmodified right-clicks; Shift-right-click opens the menu.
     view.scrollDOM.addEventListener('contextmenu', (event) => {
@@ -223,18 +198,16 @@ window.WorkshopNavigation = {
     }, true);
     view.scrollDOM.addEventListener('pointerdown', (event) => {
       if (event.button !== 2) return;
-      if (event.shiftKey) { previousClick = null; diagnostic('gesture ignored: Shift opens the context menu'); return; }
+      if (event.shiftKey) { previousClick = null; return; }
       const now = performance.now();
       const elapsed = previousClick ? now - previousClick.at : null;
       const distance = previousClick ? Math.hypot(event.clientX - previousClick.x, event.clientY - previousClick.y) : null;
       const second = previousClick && elapsed <= 400 && distance <= 6;
-      if (previousClick && !second) diagnostic('gesture rejected: gap=' + Math.round(elapsed) + 'ms limit=400ms movement=' + distance.toFixed(1) + 'px limit=6px');
       previousClick = { at: now, x: event.clientX, y: event.clientY };
-      if (!second) { diagnostic('first right-click received; waiting for second'); return; }
+      if (!second) return;
       previousClick = null;
       event.preventDefault();
-      try { signal(view.posAtCoords({ x: event.clientX, y: event.clientY }, false)); }
-      catch (error) { diagnostic('signal handler threw ' + error.name + ': ' + error.message); }
+      signal(view.posAtCoords({ x: event.clientX, y: event.clientY }, false));
     }, true);
     view.dispatch({ effects: StateEffect.appendConfig.of([
       signalsField,
@@ -243,7 +216,6 @@ window.WorkshopNavigation = {
     view.scrollDOM.addEventListener('scroll', measure);
     addEventListener('resize', measure);
     measure();
-    diagnostic('ready; right-click twice in the code editor (400ms, 6px); PointerEvent=' + (typeof PointerEvent) + ' randomUUID=' + (typeof crypto.randomUUID));
     return { showRoster, showSignals };
   },
 };
