@@ -254,7 +254,8 @@ async function main() {
       const short = typed === null ? null : typedShortfall({ made: made || 0, asked: typed, snapshot, solved });
       if (short) await interaction.followUp({ content: short, flags: MessageFlags.Ephemeral }).catch((e) => console.error('typed moves note failed', e && e.code));
       // Ranks are for the games' own levels: a sent level could be made trivial to gain rank.
-      if (solved && !record.levelId) {
+      // And for play on the home server: a win anywhere else (another server, a DM) is not counted.
+      if (solved && !record.levelId && interaction.guildId === cfg.guildId) {
         const s = scores.credit(interaction.user.id, record.gistId, solvedLevel);
         // Rank-ups are announced only in the score channel (or wherever the game is, if none is configured).
         const here = !cfg.scoreChannelId || cfg.scoreChannelId === interaction.channelId;

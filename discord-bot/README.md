@@ -156,7 +156,7 @@ Each day the bot posts one of David W. Skinner's Sokoban puzzles in the channel 
 
 ## Scores
 
-Whoever makes the winning move on a level gets credit for it, once per game and level. Ranks rise at 1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90 and 100 levels. Rank-ups are announced in the channel named by `SCORE_CHANNEL_ID` only (or in the game's channel if unset). `/rank` shows your own count privately. Scores live in `data/scores.json`.
+Whoever makes the winning move on a level gets credit for it, once per game and level, but only on the server named by `DISCORD_GUILD_ID`: wins anywhere else (another server, a DM) do not count. Ranks rise at 1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90 and 100 levels. Rank-ups are announced in the channel named by `SCORE_CHANNEL_ID` only (or in the game's channel if unset). `/rank` shows your own count privately. Scores live in `data/scores.json`.
 
 ## Keyword roles
 
