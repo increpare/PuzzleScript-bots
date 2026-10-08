@@ -112,6 +112,11 @@ your own marker immediately, with a sending indicator until it is accepted. Sign
 to the document and wait briefly for your outstanding edits to sync. Failed sends show a visible
 notice on the marker and an explanation in the console.
 
+Temporary `Workshop signals [diag-1]` logging in the editor console and browser console reports
+right-button events, their region, timing and movement limits, and the send/broadcast stages. It
+does not log document text, identity or credentials. The `ready` line identifies this diagnostic
+build when investigating input that Discord does not appear to deliver.
+
 `npm run test:workshop-browser` checks the real labs editor in Chromium inside a cross-origin frame
 with downloads blocked, using two participants. It needs a labs checkout with Playwright installed
 and its Chromium browser available. Set `PUZZLESCRIPT_LABS_DIR` to that checkout; by default it uses

@@ -69,6 +69,22 @@ test('the workshop editor in a Discord-like frame', async (t) => {
     await page.screenshot({ path: path.join(process.env.WORKSHOP_SCREENSHOT_DIR, name + '.png') });
   };
 
+  await t.test('signal diagnostics identify loaded code, raw input and a rejected slow double-click', async () => {
+    assert.match(await a.locator('#consoletextarea').textContent(), /Workshop signals \[diag-1\]: ready/);
+    await cursor(a, 0);
+    const line = a.locator('.cm-line').first();
+    await line.click({ button: 'right', position: { x: 20, y: 8 } });
+    await delay(550);
+    await line.click({ button: 'right', position: { x: 20, y: 8 } });
+    const log = await a.locator('#consoletextarea').textContent();
+    assert.match(log, /pointerdown button=2.*region=code/);
+    assert.match(log, /mousedown button=2.*region=code/);
+    assert.match(log, /contextmenu button=2.*region=code/);
+    assert.match(log, /gesture rejected:.*limit=400ms/);
+    assert.equal(await a.locator('.ws-signal').count(), 0);
+    await delay(450);
+  });
+
   await t.test('sound buttons print a seed and play without touching the parent frame', async () => {
     for (let i = 0; i < 10; i++) await a.locator('#newsound' + i).click();
     await a.waitForFunction(() => document.querySelectorAll('#consoletextarea .cm-SOUND').length === 10, null, { timeout: 2000 });
@@ -318,6 +334,22 @@ test('the workshop editor in a Discord-like frame', async (t) => {
       await peers[0].context.unroute('**/api/workshop/signal');
       if (held && response) await held.fulfill({ response }).catch(() => {});
     }
+  });
+
+  await t.test('broadcast diagnostics still appear when the POST acknowledgement arrives first', async () => {
+    await cursor(a, 0); await cursor(b, 0); await delay(650);
+    const originalNudge = doc.nudge;
+    doc.nudge = () => setTimeout(() => originalNudge(), 400);
+    try {
+      const line = a.locator('.cm-line').first();
+      await line.click({ button: 'right', position: { x: 80, y: 8 } });
+      await line.click({ button: 'right', position: { x: 80, y: 8 } });
+      await a.waitForFunction(() => document.querySelector('#consoletextarea').textContent.includes('POST response HTTP 200'), null, { timeout: 2000 });
+      await a.waitForFunction(() => document.querySelector('.ws-signal[data-pending="false"]')?.textContent === 'Ada', null, { timeout: 2000 });
+      await delay(600);
+      const log = await a.locator('#consoletextarea').textContent();
+      assert.ok(log.lastIndexOf('broadcast received for your signal') > log.lastIndexOf('POST response HTTP 200'), 'both acknowledgement and later broadcast must be logged');
+    } finally { doc.nudge = originalNudge; }
   });
 
   await t.test('no uncaught browser errors', () => assert.deepEqual(errors, []));
