@@ -16,6 +16,7 @@ const { workshopPage } = require('./workshop-page');
 const { createWorkshopDoc } = require('./workshop-doc');
 const { createWorkshopSaves } = require('./workshop-saves');
 const { createSharer } = require('./workshop-share');
+const { createPresence } = require('./workshop-presence');
 const { tweakAllowed, createPending } = require('./tweaks');
 const { createOAuth } = require('./discord-oauth');
 const { createHttpServer } = require('./http-server');
@@ -104,6 +105,10 @@ async function main() {
   const workshopDoc = workshopHtml ? createWorkshopDoc({ dataDir: cfg.dataDir }) : null;
   // What the editor's SAVE button and Load dropdown show there: the room's list, not each browser's.
   const workshopSaves = workshopHtml ? createWorkshopSaves({ dataDir: cfg.dataDir }) : null;
+  // Who is in the room and where their cursors are. An editor that has gone quiet has left, and
+  // the others are told.
+  const workshopPresence = workshopHtml ? createPresence() : null;
+  const presenceSweep = workshopPresence ? setInterval(() => { if (workshopPresence.sweep()) workshopDoc.nudge(); }, 5000) : null;
 
   // Share, in the workshop: the room's game becomes a public gist under the bot's own GitHub
   // account, and a game of it is started for people to play, as /play would start it. Without a
@@ -166,6 +171,7 @@ async function main() {
       workshop: workshopDoc,
       workshopSaves,
       workshopShare: sharer ? shareWorkshop : null,
+      workshopPresence,
       // for working on the page on one's own machine; never set on the server
       devSession: process.env.WORKSHOP_DEV === '1',
       oauth: createOAuth({ clientId: cfg.appId, clientSecret: cfg.clientSecret }),
@@ -340,7 +346,7 @@ async function main() {
     ensureWorkshopDoor().catch((e) => console.error('the workshop door could not be posted:', 'code', e && e.code, e && e.message));
   });
   client.on('error', (e) => console.error('client error', e));
-  const shutdown = async () => { await registry.close(); await pool.close(); if (workshopDoc) workshopDoc.close(); if (httpServer) await httpServer.close(); client.destroy(); process.exit(0); };
+  const shutdown = async () => { await registry.close(); await pool.close(); if (presenceSweep) clearInterval(presenceSweep); if (workshopDoc) workshopDoc.close(); if (httpServer) await httpServer.close(); client.destroy(); process.exit(0); };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
   await client.login(cfg.discordToken);

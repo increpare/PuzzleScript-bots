@@ -11,7 +11,7 @@ const { createSigner } = require('../signing');
 
 const DAY = 24 * 60 * 60 * 1000;
 
-async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, workshopSaves, workshopShare, devSession } = {}) {
+async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, workshopSaves, workshopShare, workshopPresence, devSession } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-http-'));
   const staticDir = path.join(dir, 'site');
   // a second directory, looked in after the first
@@ -34,6 +34,7 @@ async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, worksh
     workshop,
     workshopSaves,
     workshopShare,
+    workshopPresence,
     devSession,
     oauth: oauth || { exchange: async (code) => ({ accessToken: 'tok-' + code, user: { id: '42', name: 'n' } }) },
     signer,
@@ -115,7 +116,7 @@ test('token: a code becomes an access token and a session for that user', async 
   assert.equal(r.status, 200);
   const body = await r.json();
   assert.equal(body.access_token, 'tok-abc');
-  assert.deepEqual(signer.verify(body.session), { uid: '42' });
+  assert.deepEqual(signer.verify(body.session), { uid: '42', name: 'n' });
 });
 
 test('token: a refusal at Discord is a 401 with its reason, and bad bodies are refused', async (t) => {
@@ -324,4 +325,51 @@ test('workshop share: offered when it is set up, and done as the signed-in user'
   assert.equal((await (await fetch(base + '/api/workshop', { headers: bearer(session) })).json()).canShare, true);
   assert.deepEqual(await (await jsonPost(base + '/api/workshop/share', session, {})).json(), { ok: true, playUrl: 'https://www.puzzlescript.net/play.html?p=abc' });
   assert.deepEqual(asked, ['42']);
+});
+
+test('workshop presence: a cursor is recorded under the session\'s user and name, and the others are told shortly', async (t) => {
+  const workshop = fakeWorkshop();
+  let nudges = 0;
+  workshop.nudge = () => { nudges++; };
+  const { createPresence } = require('../workshop-presence');
+  const workshopPresence = createPresence({ now: () => 0 });
+  const { base, signer } = await start(t, { workshop, workshopPresence });
+  assert.equal((await jsonPost(base + '/api/workshop/presence', null, { id: 'c1', anchor: 1, head: 2 })).status, 401);
+  const session = signer.sign({ uid: '42', name: 'Ada' }, DAY);
+  // the page cannot choose its name: whatever it sends, the session's is used
+  assert.deepEqual(await (await jsonPost(base + '/api/workshop/presence', session, { id: 'c1', anchor: 1, head: 2, name: 'Mallory' })).json(), { ok: true });
+  await jsonPost(base + '/api/workshop/presence', session, { id: 'c1', anchor: 1, head: 3 });
+  assert.deepEqual(workshopPresence.list().map((x) => [x.id, x.name, x.anchor, x.head]), [['c1', 'Ada', 1, 3]]);
+  assert.equal(nudges, 0);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(nudges, 1); // two changes close together, told of once
+  await jsonPost(base + '/api/workshop/presence', session, { id: 'c1', anchor: 1, head: 3 });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(nudges, 1); // nothing changed
+  const bad = await jsonPost(base + '/api/workshop/presence', session, { id: 'c1', anchor: -5, head: 3 });
+  assert.equal(bad.status, 400);
+
+  // an answer to a pull says who is there
+  let answered = null;
+  const pending = fetch(base + '/api/workshop/pull?version=3', { headers: bearer(session) }).then((x) => x.json()).then((j) => { answered = j; });
+  while (workshop.pulls.length === 0) await new Promise((x) => setTimeout(x, 5));
+  workshop.pulls[0].answer({ updates: [] });
+  await pending;
+  assert.deepEqual(answered.presence.map((x) => [x.id, x.name]), [['c1', 'Ada']]);
+});
+
+test('workshop presence: an editor that says it is closing is taken out, by its own user only', async (t) => {
+  const workshop = fakeWorkshop();
+  workshop.nudge = () => {};
+  const { createPresence } = require('../workshop-presence');
+  const workshopPresence = createPresence({ now: () => 0 });
+  const { base, signer } = await start(t, { workshop, workshopPresence });
+  const ada = signer.sign({ uid: '42', name: 'Ada' }, DAY);
+  const bob = signer.sign({ uid: '43', name: 'Bob' }, DAY);
+  await jsonPost(base + '/api/workshop/presence', ada, { id: 'c1', anchor: 1, head: 2 });
+  assert.equal((await jsonPost(base + '/api/workshop/leave', null, { id: 'c1' })).status, 401);
+  await jsonPost(base + '/api/workshop/leave', bob, { id: 'c1' });
+  assert.equal(workshopPresence.list().length, 1);
+  assert.deepEqual(await (await jsonPost(base + '/api/workshop/leave', ada, { id: 'c1' })).json(), { ok: true });
+  assert.equal(workshopPresence.list().length, 0);
 });

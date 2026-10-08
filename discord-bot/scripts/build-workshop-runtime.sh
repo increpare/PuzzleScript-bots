@@ -43,10 +43,11 @@ cat > "$TMP/entry.mjs" <<'JS'
 import "./labs-runtime.js"
 import {collab, getClientID, getSyncedVersion, receiveUpdates, sendableUpdates} from "@codemirror/collab"
 import {ChangeSet, Compartment} from "@codemirror/state"
+import {WidgetType} from "@codemirror/view"
 
 // What the workshop needs beyond the names the editor's own runtime gives out.
 globalThis.PuzzleScriptWorkshopCollab = Object.freeze({
-  collab, getClientID, getSyncedVersion, receiveUpdates, sendableUpdates, ChangeSet, Compartment
+  collab, getClientID, getSyncedVersion, receiveUpdates, sendableUpdates, ChangeSet, Compartment, WidgetType
 })
 JS
 printf 'module.exports = require("@codemirror/state")\n' > "$TMP/state.cjs"

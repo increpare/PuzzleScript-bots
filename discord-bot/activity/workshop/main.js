@@ -8,9 +8,11 @@
 // brings everyone else's changes, the editor rebases its own unsent ones over them, and they are
 // sent again. Loading a game or an example replaces the text, which is a change like any other.
 (function () {
-  const { EditorView, StateEffect, Transaction } = window.PuzzleScriptCM6Runtime;
-  const { collab, getSyncedVersion, receiveUpdates, sendableUpdates, ChangeSet, Compartment } = window.PuzzleScriptWorkshopCollab;
+  const { EditorView, StateEffect, StateField, Transaction, Decoration } = window.PuzzleScriptCM6Runtime;
+  const { collab, getSyncedVersion, receiveUpdates, sendableUpdates, ChangeSet, Compartment, WidgetType } = window.PuzzleScriptWorkshopCollab;
   let session = null; // the bot's signed word for who is signed in; sent with every request
+  // This editor's own name in the room: one for each open page, so a person with two windows is two editors.
+  const editorId = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
   let discord = null; // Discord's SDK, once the page has found itself inside Discord
 
   function say(text) {
@@ -79,6 +81,80 @@
   const home = document.querySelector('#uppertoolbar a[href="index.html"]');
   if (home) home.removeAttribute('href');
 
+  // ---- the others in the room: their cursors in the code, and a list of who is here ----
+  const style = document.createElement('style');
+  style.textContent = [
+    '.ws-peer-caret { position: relative; display: inline-block; width: 0; height: 1.2em; margin: 0 -1px; border-left: 2px solid; vertical-align: text-bottom; pointer-events: none; }',
+    // The name sits over the line above, so it shows for a moment when its owner moves and then
+    // fades, leaving the bar.
+    '.ws-peer-name { position: absolute; left: -2px; bottom: 100%; padding: 0 4px; border-radius: 3px 3px 3px 0; font: 11px/15px sans-serif; color: #fff; white-space: nowrap; z-index: 5; animation: ws-peer-name 3s forwards; }',
+    '@keyframes ws-peer-name { 0%, 70% { opacity: 0.92; } 100% { opacity: 0; } }',
+    '#workshopRoster { position: absolute; right: 14px; bottom: 8px; z-index: 20; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 10px; max-width: 70%; padding: 4px 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.6); color: #fff; font: 12px/16px sans-serif; pointer-events: none; }',
+    '#workshopRoster:empty { display: none; }',
+    '#workshopRoster i { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; }',
+  ].join('\n');
+  document.head.appendChild(style);
+  const roster = document.createElement('div');
+  roster.id = 'workshopRoster';
+  (document.getElementById('leftpanel') || document.body).appendChild(roster);
+
+  function showRoster(everyone) {
+    roster.textContent = '';
+    for (const p of everyone) {
+      const who = document.createElement('span');
+      const dot = document.createElement('i');
+      dot.style.backgroundColor = p.color;
+      who.appendChild(dot);
+      who.appendChild(document.createTextNode(p.name + (p.id === editorId ? ' (you)' : '')));
+      roster.appendChild(who);
+    }
+  }
+
+  // Another person's cursor: a thin bar in their colour, with their name on it.
+  // moved: when they last moved it. A cursor that has moved is drawn afresh, which shows its name again.
+  class PeerCaret extends WidgetType {
+    constructor(name, color, moved) { super(); this.name = name; this.color = color; this.moved = moved; }
+    eq(other) { return other.name === this.name && other.color === this.color && other.moved === this.moved; }
+    toDOM() {
+      const caret = document.createElement('span');
+      caret.className = 'ws-peer-caret';
+      caret.style.borderLeftColor = this.color;
+      const label = document.createElement('span');
+      label.className = 'ws-peer-name';
+      label.style.backgroundColor = this.color;
+      label.textContent = this.name;
+      caret.appendChild(label);
+      return caret;
+    }
+    ignoreEvent() { return true; }
+  }
+  function peerDecorations(peers, length) {
+    const ranges = [];
+    for (const p of peers) {
+      if (p.head === null) continue;
+      const head = Math.min(p.head, length);
+      const anchor = Math.min(p.anchor, length);
+      // what they have selected, as a wash of their colour
+      if (anchor !== head) ranges.push(Decoration.mark({ attributes: { style: 'background-color: ' + p.color + '40' } }).range(Math.min(anchor, head), Math.max(anchor, head)));
+      ranges.push(Decoration.widget({ widget: new PeerCaret(p.name, p.color, p.moved), side: 1 }).range(head));
+    }
+    return Decoration.set(ranges, true);
+  }
+  const setPeers = StateEffect.define();
+  const peersField = StateField.define({
+    create: () => ({ peers: [], decorations: Decoration.none }),
+    update(value, tr) {
+      let peers = value.peers;
+      for (const e of tr.effects) if (e.is(setPeers)) peers = e.value;
+      // Text typed or removed carries the others' cursors with it, until they next say where they are.
+      if (peers === value.peers && tr.docChanged) {
+        peers = peers.map((p) => (p.head === null ? p : Object.assign({}, p, { anchor: tr.changes.mapPos(p.anchor, 1), head: tr.changes.mapPos(p.head, 1) })));
+      }
+      return peers === value.peers ? value : { peers, decorations: peerDecorations(peers, tr.newDoc.length) };
+    },
+    provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),
+  });
+
   // ---- the room's save list: what the editor's SAVE button and Load dropdown show ----
   let savesRev = -1;
   function showSaves(lists) {
@@ -145,7 +221,7 @@
     let stopped = false;
 
     const sharedAt = (version) => [
-      collab({ startVersion: version }),
+      collab({ startVersion: version, clientID: editorId }),
       EditorView.updateListener.of((update) => { if (update.docChanged) push(); }),
     ];
     const replaceAll = (text) => ({ changes: { from: 0, to: view.state.doc.length, insert: text }, annotations: Transaction.addToHistory.of(false) });
@@ -226,11 +302,52 @@
         if (r.body.reset) { await resync(); continue; }
         // someone has saved: fetch the list afresh
         if (typeof r.body.savesRev === 'number' && r.body.savesRev !== savesRev) fetchSaves();
+        if (Array.isArray(r.body.presence)) showPeers(r.body.presence);
         if (r.body.updates.length) {
           view.dispatch(receiveUpdates(view.state, r.body.updates.map((u) => ({ clientID: u.clientID, changes: ChangeSet.fromJSON(u.changes) }))));
         }
       }
     }
+
+    // Where this editor's cursor is, for the others. It is said when it changes, at most a few times
+    // a second, and every few seconds regardless, which is how the bot knows this editor is still open.
+    let saidAt = null;
+    let sayTimer = null;
+    function sayWhere(evenIfUnchanged) {
+      const main = view.state.selection.main;
+      const at = main.anchor + ':' + main.head;
+      if (!evenIfUnchanged && at === saidAt) return;
+      saidAt = at;
+      api('POST', 'workshop/presence', { id: editorId, anchor: main.anchor, head: main.head }).catch(() => {});
+    }
+    let shownPeers = '';
+    const lastSaid = new Map(); // editor id -> where it last said its cursor was, and when that changed
+    function showPeers(everyone) {
+      showRoster(everyone);
+      const others = everyone.filter((p) => p.id !== editorId).map((p) => {
+        const at = p.anchor + ':' + p.head;
+        let last = lastSaid.get(p.id);
+        if (!last || last.at !== at) { last = { at, moved: Date.now() }; lastSaid.set(p.id, last); }
+        return Object.assign({ moved: last.moved }, p);
+      });
+      for (const id of lastSaid.keys()) if (!others.some((p) => p.id === id)) lastSaid.delete(id);
+      const key = JSON.stringify(others);
+      if (key === shownPeers) return;
+      shownPeers = key;
+      view.dispatch({ effects: setPeers.of(others) });
+    }
+    view.dispatch({ effects: StateEffect.appendConfig.of([
+      peersField,
+      EditorView.updateListener.of((update) => {
+        if ((update.selectionSet || update.docChanged) && sayTimer === null) sayTimer = setTimeout(() => { sayTimer = null; sayWhere(false); }, 150);
+      }),
+    ]) });
+    setInterval(() => { if (!stopped) sayWhere(true); }, 5000);
+    // On the way out, say so, so that the others do not see a cursor with nobody behind it.
+    // (If this does not get through, the bot notices the silence a few seconds later.)
+    addEventListener('pagehide', () => {
+      fetch('api/workshop/leave', { method: 'POST', keepalive: true, headers: { authorization: 'Bearer ' + session, 'content-type': 'application/json' }, body: JSON.stringify({ id: editorId }) }).catch(() => {});
+    });
 
     // What the editor opened with (its example game) becomes the room's first document, if the
     // room has never had one.
@@ -238,6 +355,7 @@
     view.dispatch(replaceAll(first.doc));
     view.dispatch({ effects: StateEffect.appendConfig.of(sharing.of(sharedAt(first.version))) });
     if (first.version === 0 && first.doc === '' && opening) view.dispatch({ changes: { from: 0, insert: opening } });
+    sayWhere(true);
     pullForever();
   }
 

@@ -67,16 +67,25 @@ function readJson(req, max = MAX_BODY) {
 // workshop: the shared document (see workshop-doc.js), when there is a workshop.
 // workshopSaves: the room's save list (see workshop-saves.js).
 // workshopShare(uid): shares the room's game and answers with the outcome, when sharing is set up.
+// workshopPresence: who is in the room and where their cursors are (see workshop-presence.js).
 // devSession: hand a session to anyone who asks, without Discord. This is for working on the page
 //   on one's own machine and must never be on where the server can be reached by others.
-function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, workshop = null, workshopSaves = null, workshopShare = null, devSession = false, log = console.error }) {
+function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, workshop = null, workshopSaves = null, workshopShare = null, workshopPresence = null, devSession = false, log = console.error }) {
   const roots = staticDirs.map((d) => path.resolve(d));
 
-  // The signed-in user's id, from the session the token exchange handed the page; null without one.
-  function sessionUser(req) {
+  // Who is signed in ({ uid, name }), from the session the token exchange handed the page; null
+  // without one. The name is the one Discord gave for them when they signed in.
+  function sessionOf(req) {
     const m = /^Bearer (\S+)$/.exec(req.headers.authorization || '');
     const session = m ? signer.verify(m[1]) : null;
-    return session && typeof session.uid === 'string' ? session.uid : null;
+    return session && typeof session.uid === 'string' ? session : null;
+  }
+  const sessionUser = (req) => { const s = sessionOf(req); return s ? s.uid : null; };
+
+  // Cursors move many times a second. Everyone waiting is told at most a few times a second.
+  let presenceTimer = null;
+  function tellOfPresenceSoon() {
+    if (presenceTimer === null) presenceTimer = setTimeout(() => { presenceTimer = null; workshop.nudge(); }, 200);
   }
 
   function serveStatic(pathname, res, headOnly) {
@@ -109,11 +118,31 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
     const url = new URL(req.url, 'http://localhost');
     const p = url.pathname;
     if (devSession && p === '/api/dev-session' && req.method === 'GET') {
-      return json(res, 200, { session: signer.sign({ uid: 'dev-' + crypto.randomBytes(4).toString('hex') }, SESSION_MS) });
+      const made = 'dev-' + crypto.randomBytes(4).toString('hex');
+      return json(res, 200, { session: signer.sign({ uid: made, name: made }, SESSION_MS) });
     }
     if (workshop && (p === '/api/workshop' || p.startsWith('/api/workshop/'))) {
-      const uid = sessionUser(req);
-      if (uid === null) return json(res, 401, { error: 'sign in again' });
+      const who = sessionOf(req);
+      if (who === null) return json(res, 401, { error: 'sign in again' });
+      const uid = who.uid;
+      if (workshopPresence && p === '/api/workshop/presence' && req.method === 'POST') {
+        const body = await readJson(req);
+        try {
+          const before = workshopPresence.rev();
+          workshopPresence.set(body.id, { uid, name: who.name, anchor: body.anchor, head: body.head });
+          if (workshopPresence.rev() !== before) tellOfPresenceSoon();
+          return json(res, 200, { ok: true });
+        } catch (e) {
+          if (e.name !== 'WorkshopError') throw e;
+          return json(res, 400, { error: e.message });
+        }
+      }
+      if (workshopPresence && p === '/api/workshop/leave' && req.method === 'POST') {
+        // sent as the page closes, so that the others do not see a cursor with nobody behind it
+        const body = await readJson(req);
+        if (workshopPresence.remove(body.id, uid)) tellOfPresenceSoon();
+        return json(res, 200, { ok: true });
+      }
       // canShare tells the page whether to offer its Share button
       if (p === '/api/workshop' && req.method === 'GET') return json(res, 200, Object.assign({ canShare: workshopShare !== null }, workshop.state()));
       if (workshopShare && p === '/api/workshop/share' && req.method === 'POST') return json(res, 200, await workshopShare(uid));
@@ -131,8 +160,12 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
         const waiting = workshop.pull(Number(url.searchParams.get('version')));
         res.on('close', () => { if (!res.writableEnded) waiting.cancel(); });
         const result = await waiting.promise;
-        // savesRev lets an editor see that the save list has changed since it last fetched it
-        if (!res.writableEnded && !res.destroyed) json(res, 200, workshopSaves ? Object.assign({ savesRev: workshopSaves.rev() }, result) : result);
+        // Beside the changes: savesRev, by which an editor sees that the save list has changed since
+        // it last fetched it, and who is in the room with their cursors.
+        const extra = {};
+        if (workshopSaves) extra.savesRev = workshopSaves.rev();
+        if (workshopPresence) extra.presence = workshopPresence.list();
+        if (!res.writableEnded && !res.destroyed) json(res, 200, Object.assign(extra, result));
         return;
       }
       if (workshopSaves && p === '/api/workshop/saves' && req.method === 'GET') return json(res, 200, workshopSaves.get());
@@ -157,7 +190,7 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
         // The page needs the access token to finish signing in with the Discord client. The session
         // is what it shows the bot from then on: the bot's own word for who Discord said this is.
         const { accessToken, user } = await oauth.exchange(body.code);
-        return json(res, 200, { access_token: accessToken, session: signer.sign({ uid: user.id }, SESSION_MS) });
+        return json(res, 200, { access_token: accessToken, session: signer.sign({ uid: user.id, name: user.name }, SESSION_MS) });
       } catch (e) {
         if (!(e instanceof OAuthError)) throw e;
         return json(res, 401, { error: e.message });
@@ -191,7 +224,11 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
       server.once('error', reject);
       server.listen(port, host, () => { server.off('error', reject); resolve(server.address().port); });
     }),
-    close: () => new Promise((resolve) => { server.close(() => resolve()); server.closeAllConnections(); }),
+    close: () => new Promise((resolve) => {
+      if (presenceTimer !== null) clearTimeout(presenceTimer);
+      server.close(() => resolve());
+      server.closeAllConnections();
+    }),
   };
 }
 
