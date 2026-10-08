@@ -10,11 +10,11 @@ test('the editor page gets the workshop\'s storage in place of its own, and its 
   const page = workshopPage(EDITOR);
   assert.equal(page.includes('js/storagewrapper.js'), false);
   assert.equal(page.includes('js/codemirror6/runtime/dist/'), false);
-  const order = ['js/jsgif/GIFEncoder.js', 'workshop/storage.js', 'workshop/codemirror6-runtime.js', 'js/engine.js', 'js/makegif.js', 'vendor/embedded-app-sdk.js', 'workshop/main.js', '</body>'].map((s) => page.indexOf(s));
+  const order = ['js/jsgif/GIFEncoder.js', 'workshop/storage.js', 'workshop/codemirror6-runtime.js', 'js/engine.js', 'js/makegif.js', 'vendor/embedded-app-sdk.js', 'workshop/controls.js', 'workshop/navigation.js', 'workshop/main.js', '</body>'].map((s) => page.indexOf(s));
   assert.ok(order.every((at) => at >= 0), JSON.stringify(order));
   assert.deepEqual(order, order.slice().sort((a, b) => a - b));
   // nothing else is touched
-  assert.equal(page.replace('<script src="workshop/storage.js"></script>', '<script src="js/storagewrapper.js"></script>').replace('<script src="workshop/codemirror6-runtime.js"></script>', RUNTIME).replace('<script src="vendor/embedded-app-sdk.js"></script>\n<script src="workshop/main.js"></script>\n', ''), EDITOR);
+  assert.equal(page.replace('<script src="workshop/storage.js"></script>', '<script src="js/storagewrapper.js"></script>').replace('<script src="workshop/codemirror6-runtime.js"></script>', RUNTIME).replace('<script src="vendor/embedded-app-sdk.js"></script>\n<script src="workshop/controls.js"></script>\n<script src="workshop/navigation.js"></script>\n<script src="workshop/main.js"></script>\n', ''), EDITOR);
 });
 
 test('a page that is not laid out as expected is refused, not half-changed', () => {

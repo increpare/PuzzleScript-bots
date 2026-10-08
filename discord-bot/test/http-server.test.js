@@ -11,7 +11,7 @@ const { createSigner } = require('../signing');
 
 const DAY = 24 * 60 * 60 * 1000;
 
-async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, workshopSaves, workshopShare, workshopPresence, devSession } = {}) {
+async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, workshopSaves, workshopShare, workshopPresence, workshopSignals, workshopExports, workshopPublicUrl, devSession } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-http-'));
   const staticDir = path.join(dir, 'site');
   // a second directory, looked in after the first
@@ -35,6 +35,9 @@ async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, worksh
     workshopSaves,
     workshopShare,
     workshopPresence,
+    workshopSignals,
+    workshopExports,
+    workshopPublicUrl,
     devSession,
     oauth: oauth || { exchange: async (code) => ({ accessToken: 'tok-' + code, user: { id: '42', name: 'n' } }) },
     signer,
@@ -76,6 +79,74 @@ test('serves the page and its files, with their types', async (t) => {
   const head = await fetch(base + '/vendor/lib.js', { method: 'HEAD' });
   assert.equal(head.status, 200);
   assert.equal(await head.text(), '');
+});
+
+const { createExports } = require('../workshop-exports');
+const exportGame = { html: '<!doctype html><p>Éclair</p>', source: 'title Éclair\n', filename: 'Éclair.html' };
+
+test('workshop export requires a session and returns public attachment URLs without the session', async (t) => {
+  const workshopExports = createExports();
+  const { base, signer } = await start(t, { workshop: fakeWorkshop(), workshopExports, workshopPublicUrl: 'https://downloads.example/app/' });
+  assert.equal((await jsonPost(base + '/api/workshop/export', null, exportGame)).status, 401);
+  const session = signer.sign({ uid: '42' }, DAY);
+  const response = await jsonPost(base + '/api/workshop/export', session, exportGame);
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.ok, true);
+  for (const url of [result.htmlUrl, result.sourceUrl]) {
+    assert.match(url, /^https:\/\/downloads\.example\/app\/downloads\/[A-Za-z0-9_-]{32}$/);
+    assert.equal(url.includes(session), false);
+  }
+  const htmlToken = result.htmlUrl.split('/').pop();
+  const sourceToken = result.sourceUrl.split('/').pop();
+  const html = await fetch(base + '/downloads/' + htmlToken);
+  assert.equal(html.status, 200);
+  assert.equal(html.headers.get('content-type'), 'text/html; charset=utf-8');
+  assert.equal(html.headers.get('content-length'), String(Buffer.byteLength(exportGame.html)));
+  assert.equal(html.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(html.headers.get('cache-control'), 'no-store');
+  assert.equal(html.headers.get('content-disposition'), 'attachment; filename="_clair.html"; filename*=UTF-8\'\'%C3%89clair.html');
+  assert.equal(await html.text(), exportGame.html);
+  const source = await fetch(base + '/downloads/' + sourceToken);
+  assert.equal(source.headers.get('content-type'), 'text/plain; charset=utf-8');
+  assert.equal(await source.text(), exportGame.source);
+  const head = await fetch(base + '/downloads/' + htmlToken, { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal(head.headers.get('content-length'), String(Buffer.byteLength(exportGame.html)));
+  assert.equal(head.headers.get('content-disposition'), html.headers.get('content-disposition'));
+  assert.equal(await head.text(), '');
+  assert.equal((await fetch(base + '/api/workshop', { headers: bearer(htmlToken) })).status, 401);
+  assert.equal((await fetch(base + '/api/tweak', { headers: bearer(sourceToken) })).status, 401);
+});
+
+test('workshop downloads reject unknown and expired tokens and unsupported methods', async (t) => {
+  let clock = 0;
+  const workshopExports = createExports({ now: () => clock, ttlMs: 10 });
+  const { base } = await start(t, { workshopExports }); // downloads do not need a live workshop or session
+  const { htmlToken, sourceToken } = workshopExports.add(exportGame);
+  assert.equal((await fetch(base + '/downloads/' + htmlToken)).status, 200);
+  assert.equal((await fetch(base + '/downloads/unknown')).status, 404);
+  assert.equal((await fetch(base + '/downloads/' + htmlToken + '/extra')).status, 404);
+  assert.equal((await post(base + '/downloads/' + sourceToken, {})).status, 405);
+  clock = 10;
+  assert.equal((await fetch(base + '/downloads/' + htmlToken)).status, 404);
+  assert.equal((await fetch(base + '/downloads/' + sourceToken, { method: 'HEAD' })).status, 404);
+});
+
+test('workshop export validates content and both decoded and JSON request sizes', async (t) => {
+  const { base, signer } = await start(t, { workshop: fakeWorkshop(), workshopExports: createExports() });
+  const session = signer.sign({ uid: '42' }, DAY);
+  for (const bad of [{}, { ...exportGame, source: [] }, { ...exportGame, html: '' }, { ...exportGame, filename: 7 }]) {
+    assert.equal((await jsonPost(base + '/api/workshop/export', session, bad)).status, 400);
+  }
+  const escaped = { ...exportGame, html: '"'.repeat(1024 * 1024) };
+  const good = await jsonPost(base + '/api/workshop/export', session, escaped);
+  assert.equal(good.status, 200); // JSON is much larger than a normal API body
+  assert.match((await good.json()).htmlUrl, /^https:\/\/games\.increpare\.com\/puzzlescriptbot\/app\/downloads\//);
+  assert.equal((await jsonPost(base + '/api/workshop/export', session, { ...exportGame, html: 'x'.repeat(8 * 1024 * 1024) })).status, 413);
+  assert.equal((await jsonPost(base + '/api/workshop/export', session, { ...exportGame, html: '\0'.repeat(3 * 1024 * 1024) })).status, 413);
+  const absent = await start(t, { workshop: fakeWorkshop() });
+  assert.equal((await jsonPost(absent.base + '/api/workshop/export', absent.signer.sign({ uid: '42' }, DAY), exportGame)).status, 404);
 });
 
 test('a file is looked for in each directory in turn, and the first one found is served', async (t) => {
@@ -372,4 +443,75 @@ test('workshop presence: an editor that says it is closing is taken out, by its 
   assert.equal(workshopPresence.list().length, 1);
   assert.deepEqual(await (await jsonPost(base + '/api/workshop/leave', ada, { id: 'c1' })).json(), { ok: true });
   assert.equal(workshopPresence.list().length, 0);
+});
+
+const { createSignals } = require('../workshop-signals');
+const { ChangeSet } = require('../vendor/codemirror-state.cjs');
+const { createWorkshopDoc } = require('../workshop-doc');
+
+test('workshop signals authenticate, validate the current position and ignore spoofed identity', async (t) => {
+  let time = 0;
+  const workshop = fakeWorkshop();
+  let nudges = 0;
+  workshop.nudge = () => { nudges++; };
+  const workshopSignals = createSignals({ now: () => time, colorOf: (uid) => uid === '42' ? '#123456' : '#abcdef' });
+  const { base, signer } = await start(t, { workshop, workshopSignals });
+  const session = signer.sign({ uid: '42', name: 'Ada' }, DAY);
+  const url = base + '/api/workshop/signal';
+  assert.equal((await jsonPost(url, null, { pos: 2, version: 3 })).status, 401);
+  for (const version of [2, 4, null, '3']) assert.equal((await jsonPost(url, session, { pos: 2, version })).status, 409);
+  for (const pos of [-1, 1.5, 8, null, '0']) assert.equal((await jsonPost(url, session, { pos, version: 3 })).status, 400);
+  assert.equal(nudges, 0);
+  assert.equal((await jsonPost(url, session, { pos: 7, version: 3, uid: '43', name: 'Mallory', color: '#ffffff' })).status, 200);
+  assert.equal(nudges, 1);
+  const [signal] = workshopSignals.list();
+  assert.deepEqual({ ...signal, id: null }, { id: null, name: 'Ada', color: '#123456', pos: 7, remainingMs: 5000 });
+  time = 499;
+  assert.equal((await jsonPost(url, session, { pos: 1, version: 3 })).status, 429);
+  assert.equal(nudges, 1);
+  time = 500;
+  assert.equal((await jsonPost(url, session, { pos: 0, version: 3 })).status, 200);
+  assert.equal(nudges, 2);
+  assert.deepEqual(workshopSignals.list().map((s) => s.pos), [0]);
+});
+
+test('workshop signals wake pulls, map every accepted change before delivery, and expire', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-signals-'));
+  const workshop = createWorkshopDoc({ dataDir: dir, pollMs: 100 });
+  t.after(() => { workshop.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  let time = 0;
+  const workshopSignals = createSignals({ now: () => time });
+  const { base, signer } = await start(t, { workshop, workshopSignals });
+  const session = signer.sign({ uid: '42', name: 'Ada' }, DAY);
+  workshop.push(0, [{ clientID: 'a', changes: ChangeSet.of({ from: 0, insert: 'abcdef' }, 0).toJSON() }]);
+  const pull = () => fetch(base + '/api/workshop/pull?version=' + workshop.state().version, { headers: bearer(session) }).then((r) => r.json());
+  const waitForPull = async () => { while (!workshop.waiting()) await new Promise((resolve) => setTimeout(resolve, 5)); };
+  const initial = pull();
+  await waitForPull();
+  assert.equal((await jsonPost(base + '/api/workshop/signal', session, { pos: 2, version: 1 })).status, 200);
+  const signalled = await initial;
+  assert.deepEqual(signalled.updates, []);
+  assert.equal(signalled.version, 1);
+  assert.equal(signalled.signals[0].pos, 2);
+  assert.equal(signalled.signals[0].name, 'Ada');
+  const changes = [
+    { clientID: 'a', changes: ChangeSet.of({ from: 2, insert: 'xy' }, 6).toJSON() },
+    { clientID: 'a', changes: ChangeSet.of({ from: 0, to: 1 }, 8).toJSON() },
+  ];
+  const pending = pull();
+  await waitForPull();
+  assert.deepEqual(await (await jsonPost(base + '/api/workshop/push', session, { version: 1, updates: changes })).json(), { accepted: true });
+  const mapped = await pending;
+  assert.equal(mapped.version, 3);
+  assert.equal(mapped.signals[0].pos, 3);
+  assert.deepEqual(mapped.updates, changes);
+  assert.deepEqual(await (await jsonPost(base + '/api/workshop/push', session, { version: 1, updates: changes })).json(), { accepted: false });
+  assert.equal(workshopSignals.list()[0].pos, 3);
+  const invalid = await jsonPost(base + '/api/workshop/push', session, { version: 3, updates: [{ clientID: 'a', changes: [99] }] });
+  assert.equal(invalid.status, 400);
+  assert.equal(workshopSignals.list()[0].pos, 3);
+  time = 5000;
+  const expired = await pull();
+  assert.deepEqual(expired.signals, []);
+  assert.equal(expired.version, 3);
 });

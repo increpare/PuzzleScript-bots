@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { OAuthError } = require('./discord-oauth');
+const { DEFAULT_PUBLIC_URL, normalizePublicUrl } = require('./workshop-exports');
 
 // Only these are served. Anything else in the page directories is not for the browser.
 const TYPES = {
@@ -24,6 +25,8 @@ const MAX_BODY = 64 * 1024;
 // Loading a game into the workshop replaces the whole document in one change, so a change can be
 // as big as a game, and JSON makes it a little bigger.
 const MAX_PUSH_BODY = 2.5 * 1024 * 1024;
+// Generated HTML and source may total 8 MiB; JSON escaping has a separate transport limit.
+const MAX_EXPORT_BODY = 16 * 1024 * 1024;
 const SESSION_MS = 24 * 60 * 60 * 1000;
 
 // no-cache: Discord's proxy and its clients hold on to files, and a deploy has to show at once.
@@ -68,10 +71,12 @@ function readJson(req, max = MAX_BODY) {
 // workshopSaves: the room's save list (see workshop-saves.js).
 // workshopShare(uid): shares the room's game and answers with the outcome, when sharing is set up.
 // workshopPresence: who is in the room and where their cursors are (see workshop-presence.js).
+// workshopSignals: short-lived pointers mapped to the current document (see workshop-signals.js).
 // devSession: hand a session to anyone who asks, without Discord. This is for working on the page
 //   on one's own machine and must never be on where the server can be reached by others.
-function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, workshop = null, workshopSaves = null, workshopShare = null, workshopPresence = null, devSession = false, log = console.error }) {
+function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, workshop = null, workshopSaves = null, workshopShare = null, workshopPresence = null, workshopSignals = null, workshopExports = null, workshopPublicUrl = DEFAULT_PUBLIC_URL, devSession = false, log = console.error }) {
   const roots = staticDirs.map((d) => path.resolve(d));
+  const downloadBase = normalizePublicUrl(workshopPublicUrl);
 
   // Who is signed in ({ uid, name }), from the session the token exchange handed the page; null
   // without one. The name is the one Discord gave for them when they signed in.
@@ -117,6 +122,23 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
   async function handle(req, res) {
     const url = new URL(req.url, 'http://localhost');
     const p = url.pathname;
+    if (p.startsWith('/downloads/')) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'method not allowed' });
+      const match = /^\/downloads\/([A-Za-z0-9_-]{32})$/.exec(p);
+      const attachment = match && workshopExports ? workshopExports.get(match[1]) : null;
+      if (!attachment) return json(res, 404, { error: 'not found' });
+      const length = Buffer.byteLength(attachment.body, 'utf8');
+      const fallback = attachment.filename.replace(/[^\x20-\x7e]|["\\]/g, '_');
+      const encoded = encodeURIComponent(attachment.filename).replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+      res.writeHead(200, {
+        'content-type': attachment.contentType,
+        'content-length': length,
+        'content-disposition': 'attachment; filename="' + fallback + '"; filename*=UTF-8\'\'' + encoded,
+        'x-content-type-options': 'nosniff',
+        'cache-control': 'no-store',
+      });
+      return res.end(req.method === 'HEAD' ? undefined : attachment.body);
+    }
     if (devSession && p === '/api/dev-session' && req.method === 'GET') {
       const made = 'dev-' + crypto.randomBytes(4).toString('hex');
       return json(res, 200, { session: signer.sign({ uid: made, name: made }, SESSION_MS) });
@@ -125,6 +147,30 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
       const who = sessionOf(req);
       if (who === null) return json(res, 401, { error: 'sign in again' });
       const uid = who.uid;
+      if (workshopSignals && p === '/api/workshop/signal' && req.method === 'POST') {
+        const body = await readJson(req);
+        const state = workshop.state();
+        if (body.version !== state.version) return json(res, 409, { error: 'the document has changed' });
+        if (!Number.isInteger(body.pos) || body.pos < 0 || body.pos > state.doc.length) return json(res, 400, { error: 'bad signal position' });
+        try {
+          workshopSignals.add({ uid, name: who.name || 'someone', pos: body.pos });
+          workshop.nudge();
+          return json(res, 200, { ok: true });
+        } catch (e) {
+          if (e.name !== 'WorkshopError') throw e;
+          return json(res, e.status || 400, { error: e.message });
+        }
+      }
+      if (workshopExports && p === '/api/workshop/export' && req.method === 'POST') {
+        const body = await readJson(req, MAX_EXPORT_BODY);
+        try {
+          const { htmlToken, sourceToken } = workshopExports.add(body);
+          return json(res, 200, { ok: true, htmlUrl: downloadBase + 'downloads/' + htmlToken, sourceUrl: downloadBase + 'downloads/' + sourceToken });
+        } catch (e) {
+          if (e.name !== 'WorkshopError') throw e;
+          return json(res, e.status || 400, { error: e.message });
+        }
+      }
       if (workshopPresence && p === '/api/workshop/presence' && req.method === 'POST') {
         const body = await readJson(req);
         try {
@@ -149,7 +195,13 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
       if (p === '/api/workshop/push' && req.method === 'POST') {
         const body = await readJson(req, MAX_PUSH_BODY);
         try {
-          return json(res, 200, workshop.push(body.version, body.updates));
+          const result = workshop.push(body.version, body.updates);
+          // push resolves waiting pulls synchronously. Map in this same turn, before their await
+          // continuations serialize the new positions alongside the accepted changes.
+          if (result.accepted && workshopSignals) {
+            for (const update of body.updates) workshopSignals.map(update.changes);
+          }
+          return json(res, 200, result);
         } catch (e) {
           if (e.name !== 'WorkshopError') throw e;
           return json(res, 400, { error: e.message });
@@ -165,6 +217,10 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
         const extra = {};
         if (workshopSaves) extra.savesRev = workshopSaves.rev();
         if (workshopPresence) extra.presence = workshopPresence.list();
+        if (workshopSignals) {
+          extra.signals = workshopSignals.list();
+          extra.version = workshop.state().version;
+        }
         if (!res.writableEnded && !res.destroyed) json(res, 200, Object.assign(extra, result));
         return;
       }

@@ -29,6 +29,8 @@
     return { status: r.status, body: await r.json().catch(() => null) };
   }
 
+  WorkshopControls.install({ say, api, inDiscord: () => discord !== null });
+
   // Inside Discord's frame a link that leaves the page goes nowhere by itself: Discord has to be
   // asked to open it. This covers the links the workshop prints and the editor's own, and sends the
   // editor's links to its documentation, which is not part of the workshop, to the real pages.
@@ -39,7 +41,7 @@
     if (/^(javascript:|#)/i.test(href)) return;
     let url = new URL(href, location.href);
     if (!/^https?:$/.test(url.protocol)) return;
-    if (url.origin === location.origin) url = new URL(url.pathname + url.search + url.hash, 'https://www.puzzlescript.net');
+    if (url.origin === location.origin && !a.classList.contains('ws-download')) url = new URL(url.pathname + url.search + url.hash, 'https://www.puzzlescript.net');
     e.preventDefault();
     discord.commands.openExternalLink({ url: url.href });
   }, true);
@@ -85,33 +87,29 @@
   const style = document.createElement('style');
   style.textContent = [
     '.ws-peer-caret { position: relative; display: inline-block; width: 0; height: 1.2em; margin: 0 -1px; border-left: 2px solid; vertical-align: text-bottom; pointer-events: none; }',
-    // The name sits over the line above, so it shows for a moment when its owner moves and then
-    // fades, leaving the bar.
-    '.ws-peer-name { position: absolute; left: -2px; bottom: 100%; padding: 0 4px; border-radius: 3px 3px 3px 0; font: 11px/15px sans-serif; color: #fff; white-space: nowrap; z-index: 5; animation: ws-peer-name 3s forwards; }',
+    '.ws-overlays { position: absolute; inset: 0; z-index: 10; pointer-events: none; overflow: hidden; }',
+    '.ws-peer-name, .ws-signal, .ws-signal-arrow { position: absolute; padding: 1px 4px; border: 0; border-radius: 3px; font: 11px/15px sans-serif; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }',
+    '.ws-peer-name { animation: ws-peer-name 3s forwards; }',
     '@keyframes ws-peer-name { 0%, 70% { opacity: 0.92; } 100% { opacity: 0; } }',
-    '#workshopRoster { position: absolute; right: 14px; bottom: 8px; z-index: 20; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 10px; max-width: 70%; padding: 4px 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.6); color: #fff; font: 12px/16px sans-serif; pointer-events: none; }',
+    '.ws-signal { box-shadow: 0 0 0 4px #ffffff60; animation: ws-pulse 0.7s ease-in-out infinite alternate; }',
+    '.ws-signal-arrow { pointer-events: auto; cursor: pointer; box-shadow: 0 0 0 2px #ffffff80; }',
+    '@keyframes ws-pulse { from { box-shadow: 0 0 0 3px #ffffff80; } to { box-shadow: 0 0 0 9px #ffffff10; } }',
+    '@media (prefers-reduced-motion: reduce) { .ws-signal { animation: none; } }',
+    '#workshopRoster { position: absolute; right: 14px; bottom: 8px; z-index: 20; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 10px; max-width: 70%; padding: 4px 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.6); color: #fff; font: 12px/16px sans-serif; }',
     '#workshopRoster:empty { display: none; }',
     '#workshopRoster i { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; }',
+    '#workshopRoster button { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }',
+    '#workshopRoster button:hover { text-decoration: underline; }',
+    '#workshopRoster button:disabled { opacity: 0.65; cursor: default; text-decoration: none; }',
+    '#workshopRoster button:focus-visible, .ws-signal-arrow:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }',
   ].join('\n');
   document.head.appendChild(style);
   const roster = document.createElement('div');
   roster.id = 'workshopRoster';
   (document.getElementById('leftpanel') || document.body).appendChild(roster);
 
-  function showRoster(everyone) {
-    roster.textContent = '';
-    for (const p of everyone) {
-      const who = document.createElement('span');
-      const dot = document.createElement('i');
-      dot.style.backgroundColor = p.color;
-      who.appendChild(dot);
-      who.appendChild(document.createTextNode(p.name + (p.id === editorId ? ' (you)' : '')));
-      roster.appendChild(who);
-    }
-  }
-
-  // Another person's cursor: a thin bar in their colour, with their name on it.
-  // moved: when they last moved it. A cursor that has moved is drawn afresh, which shows its name again.
+  // Another person's cursor is a thin bar in their colour. navigation.js positions its name
+  // inside the viewport; moved records when that name should appear and fade.
   class PeerCaret extends WidgetType {
     constructor(name, color, moved) { super(); this.name = name; this.color = color; this.moved = moved; }
     eq(other) { return other.name === this.name && other.color === this.color && other.moved === this.moved; }
@@ -119,11 +117,6 @@
       const caret = document.createElement('span');
       caret.className = 'ws-peer-caret';
       caret.style.borderLeftColor = this.color;
-      const label = document.createElement('span');
-      label.className = 'ws-peer-name';
-      label.style.backgroundColor = this.color;
-      label.textContent = this.name;
-      caret.appendChild(label);
       return caret;
     }
     ignoreEvent() { return true; }
@@ -302,10 +295,11 @@
         if (r.body.reset) { await resync(); continue; }
         // someone has saved: fetch the list afresh
         if (typeof r.body.savesRev === 'number' && r.body.savesRev !== savesRev) fetchSaves();
-        if (Array.isArray(r.body.presence)) showPeers(r.body.presence);
         if (r.body.updates.length) {
           view.dispatch(receiveUpdates(view.state, r.body.updates.map((u) => ({ clientID: u.clientID, changes: ChangeSet.fromJSON(u.changes) }))));
         }
+        if (Array.isArray(r.body.presence)) showPeers(r.body.presence);
+        if (Array.isArray(r.body.signals)) navigation.showSignals(r.body.signals);
       }
     }
 
@@ -323,12 +317,26 @@
     let shownPeers = '';
     const lastSaid = new Map(); // editor id -> where it last said its cursor was, and when that changed
     function showPeers(everyone) {
-      showRoster(everyone);
+      navigation.showRoster(everyone);
+      const pending = sendableUpdates(view.state);
       const others = everyone.filter((p) => p.id !== editorId).map((p) => {
         const at = p.anchor + ':' + p.head;
         let last = lastSaid.get(p.id);
         if (!last || last.at !== at) { last = { at, moved: Date.now() }; lastSaid.set(p.id, last); }
-        return Object.assign({ moved: last.moved }, p);
+        let anchor = p.anchor;
+        let head = p.head;
+        if (head !== null) {
+          // Incoming positions precede this editor's unsent changes. Bring them into the same
+          // document as the local cursor before replacing the already-mapped decorations.
+          const length = pending.length ? pending[0].changes.length : view.state.doc.length;
+          anchor = Math.min(anchor, length);
+          head = Math.min(head, length);
+          for (const update of pending) {
+            anchor = update.changes.mapPos(anchor, 1);
+            head = update.changes.mapPos(head, 1);
+          }
+        }
+        return Object.assign({ moved: last.moved }, p, { anchor, head });
       });
       for (const id of lastSaid.keys()) if (!others.some((p) => p.id === id)) lastSaid.delete(id);
       const key = JSON.stringify(others);
@@ -342,6 +350,12 @@
         if ((update.selectionSet || update.docChanged) && sayTimer === null) sayTimer = setTimeout(() => { sayTimer = null; sayWhere(false); }, 150);
       }),
     ]) });
+    const navigation = WorkshopNavigation.create({
+      view, roster, editorId, api, say,
+      peers: () => view.state.field(peersField).peers,
+      version: () => getSyncedVersion(view.state),
+      pending: () => sendableUpdates(view.state).map((u) => u.changes),
+    });
     setInterval(() => { if (!stopped) sayWhere(true); }, 5000);
     // On the way out, say so, so that the others do not see a cursor with nobody behind it.
     // (If this does not get through, the bot notices the silence a few seconds later.)

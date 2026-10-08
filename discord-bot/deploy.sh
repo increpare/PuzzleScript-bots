@@ -40,9 +40,10 @@ else
   echo "no labs editor in $LABS/src: the workshop page is not deployed" >&2
 fi
 if ssh "$HOST" "[ -d ~/$LEGAL_DEST ]"; then
-  rsync -az "$HERE/legal/puzzlescriptbot_privacy.html" "$HERE/legal/puzzlescriptbot_terms.html" "$HOST:~/$LEGAL_DEST/"
+  # skinner.html is the homepage of the Skinner of the Day's games (see skinner.js)
+  rsync -az "$HERE/legal/puzzlescriptbot_privacy.html" "$HERE/legal/puzzlescriptbot_terms.html" "$HERE/skinner/skinner.html" "$HOST:~/$LEGAL_DEST/"
 else
-  echo "no ~/$LEGAL_DEST on $HOST: the privacy and terms pages were not published" >&2
+  echo "no ~/$LEGAL_DEST on $HOST: the privacy, terms and Skinner pages were not published" >&2
 fi
 ssh "$HOST" "$REMOTE_PATH && cd ~/$DEST/discord-bot && npm ci --omit=dev --no-audit --no-fund \
   && cp puzzlescript-bot.service ~/.config/systemd/user/ \

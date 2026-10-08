@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { createSharer, titleOf } = require('../workshop-share');
+const { createSharer, makeGist, titleOf } = require('../workshop-share');
 
 function fakeFetch(responses) {
   const calls = [];
@@ -84,4 +84,12 @@ test('sharing is limited per person and overall, by the hour, counting only what
   assert.deepEqual(await sharer.share('u3', GAME), { ok: false, error: 'the workshop has shared 3 games in the last hour; try again later' });
   clock = 60 * 60 * 1000;
   assert.equal((await sharer.share('u1', GAME)).ok, true);
+});
+
+test('a gist can be made of a game without anyone sharing it, and no limit is counted', async () => {
+  const f = fakeFetch([{ status: 201, body: { id: 'ABC123' } }, { status: 500, body: {} }]);
+  assert.deepEqual(await makeGist({ token: 'tok', fetchImpl: f.impl, text: GAME }), { ok: true, id: 'abc123', title: 'My Game' });
+  assert.equal(f.calls[0].opts.headers.authorization, 'Bearer tok');
+  assert.equal(JSON.parse(f.calls[0].opts.body).files['script.txt'].content, GAME);
+  assert.deepEqual(await makeGist({ token: 'tok', fetchImpl: f.impl, text: GAME }), { ok: false, error: 'GitHub answered with an error (500)' });
 });

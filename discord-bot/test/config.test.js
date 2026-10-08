@@ -55,3 +55,43 @@ test('workshop settings: no channel by default, and labs beside the bot', () => 
   assert.equal(loadConfig(file).workshopShareChannelId, '777');
   assert.equal(cfg.labsDir, '/somewhere/labs');
 });
+
+test('workshop download URL defaults to the public app and normalizes HTTPS and local HTTP bases', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-cfg-'));
+  const file = path.join(dir, '.env');
+  const base = 'DISCORD_TOKEN=abc\nDISCORD_APP_ID=1\nDISCORD_GUILD_ID=2\nGITHUB_TOKEN=ghp\n';
+  fs.writeFileSync(file, base);
+  assert.equal(loadConfig(file).workshopPublicUrl, 'https://games.increpare.com/puzzlescriptbot/app/');
+  for (const url of ['https://downloads.example/app', 'http://localhost:8787/app', 'http://127.0.0.1:8787', 'http://[::1]:8787']) {
+    fs.writeFileSync(file, base + 'WORKSHOP_PUBLIC_URL=' + url + '\n');
+    assert.equal(loadConfig(file).workshopPublicUrl, url + '/');
+  }
+});
+
+test('workshop download URL rejects unsafe or ambiguous public bases', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-cfg-'));
+  const file = path.join(dir, '.env');
+  const base = 'DISCORD_TOKEN=abc\nDISCORD_APP_ID=1\nDISCORD_GUILD_ID=2\nGITHUB_TOKEN=ghp\n';
+  for (const url of ['bad url', 'http://example.com/app/', 'javascript:alert(1)', 'https://user:pass@example.com/app', 'https://example.com/app?session=secret', 'https://example.com/app#fragment', 'ftp://localhost/app']) {
+    fs.writeFileSync(file, base + 'WORKSHOP_PUBLIC_URL=' + url + '\n');
+    assert.throws(() => loadConfig(file), /WORKSHOP_PUBLIC_URL/);
+  }
+});
+
+test('the Skinner of the Day: off without a channel, at nine in the morning (UTC) unless told otherwise', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-cfg-'));
+  const file = path.join(dir, '.env');
+  const base = 'DISCORD_TOKEN=abc\nDISCORD_APP_ID=1\nDISCORD_GUILD_ID=2\nGITHUB_TOKEN=ghp\n';
+  fs.writeFileSync(file, base);
+  let cfg = loadConfig(file);
+  assert.equal(cfg.skinnerChannelId, null);
+  assert.equal(cfg.skinnerHourUtc, 9);
+  fs.writeFileSync(file, base + 'SKINNER_CHANNEL_ID=555\nSKINNER_HOUR_UTC=0\n');
+  cfg = loadConfig(file);
+  assert.equal(cfg.skinnerChannelId, '555');
+  assert.equal(cfg.skinnerHourUtc, 0);
+  for (const bad of ['24', '-1', '9.5', 'noon']) {
+    fs.writeFileSync(file, base + 'SKINNER_HOUR_UTC=' + bad + '\n');
+    assert.throws(() => loadConfig(file), /SKINNER_HOUR_UTC/);
+  }
+});

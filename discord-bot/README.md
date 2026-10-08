@@ -32,9 +32,9 @@ Typing `/play` suggests games from the puzzlescript.net gallery; any gist id or 
 
     ./deploy.sh
 
-This also publishes `legal/puzzlescriptbot_privacy.html` and `legal/puzzlescriptbot_terms.html`
-to `~/www/puzzlescriptbot/` on the server, which is where the links registered with Discord
-point. When a change alters what the bot keeps about people, change the privacy page with it.
+This also publishes `legal/puzzlescriptbot_privacy.html`, `legal/puzzlescriptbot_terms.html` and
+`skinner/skinner.html` to `~/www/puzzlescriptbot/` on the server, which is where the links
+registered with Discord point. When a change alters what the bot keeps about people, change the privacy page with it.
 
 ## Run locally
 
@@ -92,6 +92,53 @@ The bot can serve a page that opens inside Discord as an Activity. It is being b
   it is noted on its message and gives no rank credit.
 - The bot's role needs Create Public Threads, Send Messages in Threads and Read Message History
   wherever the pencil is allowed.
+
+## Shared workshop
+
+The sound buttons print playable sound seeds in the console. In Discord, EXPORT prints download
+links for the standalone HTML game and its source text. They hold the version exported, expire
+after 15 minutes, and disappear on a bot restart. Anyone given a link can download its file;
+exporting does not post to the channel. The export cache holds up to 32 MB or 128 exports, so older
+links can expire sooner if it fills. `WORKSHOP_PUBLIC_URL` sets the public app address used for
+these links; the default is `https://games.increpare.com/puzzlescriptbot/app/`.
+
+Click a participant's name to scroll to their code cursor without moving your own selection.
+Double-right-click a place in the code editor to signal it to everyone for five seconds. A signal
+outside your view appears as an arrow at the editor's edge; click the arrow to jump to it. A single
+right-click keeps its usual context menu. Signals follow edits to the document. If your latest
+edits have not synced, wait for them to sync and signal again.
+
+`npm run test:workshop-browser` checks the real labs editor in Chromium inside a cross-origin frame
+with downloads blocked, using two participants. It needs a labs checkout with Playwright installed
+and its Chromium browser available. Set `PUZZLESCRIPT_LABS_DIR` to that checkout; by default it uses
+the same `PuzzleScript-labs/.claude/worktrees/discord-workshop` checkout as deployment. The regular
+`npm test` suite does not need browsers or labs.
+
+## Skinner of the Day
+
+Each day the bot posts one of David W. Skinner's Sokoban puzzles in the channel named by
+`SKINNER_CHANNEL_ID`, as "Skinner of the Day: Microban II.3", with a game of it underneath as
+`/play` would start it. Without that channel, or without `GIST_TOKEN`, it posts nothing.
+
+- The puzzles are his Microban I to IV and Sasquatch I to XI, 1043 in all, in `skinner/sets/` as
+  he published them (Microban V and Sasquatch XII, which his page names, are not on the mirror they
+  came from). His page says the sets may be freely distributed provided they remain properly
+  credited.
+- Each puzzle is a game of one level: the Microban demo of PuzzleScript (`skinner/game.txt`) around
+  it, with one glyph added to the legend, `+` for the player on a target. `skinner.js` writes the game.
+- On the day a puzzle is posted its game is made a public gist under `GIST_TOKEN`'s account, which
+  is what the play link points at. A puzzle that comes round again keeps its gist.
+- The puzzle is picked at random from those not yet posted; when all have been, from all again.
+  The 19 puzzles too big to be drawn at more than 5 px a cell (wider than 40 cells or taller than
+  30) are never picked.
+  It is posted from `SKINNER_HOUR_UTC` on (9 by default), once per day by the UTC calendar. If
+  GitHub or Discord fails it is tried again an hour later with the same puzzle. A day on which the
+  bot was not running is skipped.
+- `data/skinner.json` records the day of the last post, the puzzles posted and their gists.
+- The games' `homepage` is `https://games.increpare.com/puzzlescriptbot/skinner.html`
+  (`skinner/skinner.html`, published by `deploy.sh`), which credits him and links to his page.
+  play.html makes every homepage an https link, and his page is not served over https, so a game
+  cannot link to it directly. The post in Discord does.
 
 ## Scores
 

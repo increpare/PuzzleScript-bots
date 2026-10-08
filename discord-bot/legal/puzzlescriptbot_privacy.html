@@ -27,6 +27,7 @@
   <li><strong>Levels you send.</strong> A level made with the level editor is kept with your Discord user id and the display name you had when you sent it. The name is shown on the level.</li>
   <li><strong>Levels you solve.</strong> When you solve a level that someone sent, your user id and display name are kept with that level, and the name is shown on it.</li>
   <li><strong>The workshop.</strong> The game being edited in the shared editor, and its list of saves. These hold the game's text only, with no names or ids.</li>
+  <li><strong>Workshop exports and signals.</strong> Download links temporarily hold an exported game and its source text in memory. A signal temporarily holds your user id, display name and the code position you marked.</li>
   <li><strong>Error logs.</strong> Ordinary log entries hold timings and game ids only. When a request to Discord fails, the entry for it can include the ids involved, which may include your user id.</li>
 </ul>
 
@@ -36,12 +37,12 @@
   <li>It does not keep what you type for <code>/sfx</code> or <code>/sprite</code>. That is used to make the sound or the picture and nothing more. Moves that you type for a game become moves in that game, the same as presses.</li>
   <li>It stores nothing about your keyword role. <code>/role</code> changes the role on Discord and nothing more.</li>
   <li>It never sees your email address, and takes nothing from your Discord profile beyond the user id and display name described above.</li>
-  <li>It does not see your IP address. The level editor's requests reach the bot through Discord's own servers.</li>
+  <li>It does not record your IP address. The level editor's requests reach the bot through Discord's own servers; export download links open in your browser and reach the server directly.</li>
   <li>Opening the level editor signs you in through Discord so that the bot knows which user is editing. The bot uses that to read your user id and keeps nothing else from it.</li>
 </ul>
 
 <h2>What other people can see</h2>
-<p>A game, its "Last move" name, a sent level with its author and solvers, and rank announcements are posted in the channel, where everyone in that channel can see them. When you press Share in the workshop, the bot starts a game of it in a channel and says there that you shared it. Whatever you type in the workshop is seen by everyone who has it open, along with your Discord display name and where your cursor is. The bot keeps your name and cursor only while you are there. A sound made with <code>/sfx</code> and a picture made with <code>/sprite</code> are posted in the channel, the picture together with the text you typed for it. Replies to <code>/rank</code> and <code>/role</code> are shown only to you.</p>
+<p>A game, its "Last move" name, a sent level with its author and solvers, and rank announcements are posted in the channel, where everyone in that channel can see them. When you press Share in the workshop, the bot starts a game of it in a channel and says there that you shared it. Whatever you type in the workshop is seen by everyone who has it open, along with your Discord display name and where your cursor is. The bot keeps your name and cursor only while you are there. A code signal shows your name and the marked position to everyone in the workshop for five seconds. Anyone given an export download link can download that file while the link is valid. A sound made with <code>/sfx</code> and a picture made with <code>/sprite</code> are posted in the channel, the picture together with the text you typed for it. Replies to <code>/rank</code> and <code>/role</code> are shown only to you.</p>
 
 <h2>Where it is kept, and for how long</h2>
 <ul>
@@ -49,6 +50,7 @@
   <li>Scores are kept until you ask for them to be removed.</li>
   <li>Sent levels, and the names of their authors and solvers, are kept until you ask for yours to be removed.</li>
   <li>Games are kept until newer ones push them out. The bot holds about 1 MB of them, and when that is full it deletes finished games first, then the ones played least recently.</li>
+  <li>Workshop export links expire after 15 minutes, or sooner if the export cache fills or the bot restarts. Signals disappear after five seconds. Both are held only in memory and are discarded when expired entries are next checked.</li>
   <li>Logs are held in the operating system's journal, which discards old entries as it fills.</li>
 </ul>
 
