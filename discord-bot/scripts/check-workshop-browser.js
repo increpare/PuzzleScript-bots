@@ -53,7 +53,9 @@ test('the workshop editor in a Discord-like frame', async (t) => {
   const errors = [];
   for (const name of ['Ada', 'Bob']) {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-    await context.route('**/vendor/embedded-app-sdk.js', (route) => route.fulfill({ contentType: 'application/javascript', body: `window.__openedLinks=[]; window.DiscordEmbeddedAppSDK={DiscordSDK:class {platform='desktop';ready(){return Promise.resolve()} commands={authorize:async()=>({code:${JSON.stringify(name)}}),authenticate:async()=>({}),openExternalLink:async({url})=>{window.__openedLinks.push(url);return {opened:true}}}}};` }));
+    // Simulate a proxy retaining the former, unversioned asset URLs.
+    await context.route(/\/workshop\/(navigation|loading|main)\.js$/, (route) => route.fulfill({ contentType: 'application/javascript', body: 'window.__staleAssetLoaded=true;' }));
+    await context.route('**/vendor/embedded-app-sdk.js*', (route) => route.fulfill({ contentType: 'application/javascript', body: `window.__openedLinks=[]; window.DiscordEmbeddedAppSDK={DiscordSDK:class {platform='desktop';ready(){return Promise.resolve()} commands={authorize:async()=>({code:${JSON.stringify(name)}}),authenticate:async()=>({}),openExternalLink:async({url})=>{window.__openedLinks.push(url);return {opened:true}}}}};` }));
     const page = await context.newPage();
     page.on('pageerror', (e) => errors.push(name + ': ' + e.message));
     await page.goto('http://localhost:' + wrapper.address().port + '/');
@@ -83,6 +85,17 @@ test('the workshop editor in a Discord-like frame', async (t) => {
     assert.match(log, /gesture rejected:.*limit=400ms/);
     assert.equal(await a.locator('.ws-signal').count(), 0);
     await delay(450);
+  });
+
+  await t.test('versioned scripts bypass retained old asset URLs and the build label survives console clearing', async () => {
+    assert.equal(await a.evaluate(() => window.__staleAssetLoaded === true), false);
+    const build = await a.evaluate(() => document.querySelector('script[data-workshop-build]').dataset.workshopBuild);
+    assert.match(build, /^[a-f0-9]{16}$/);
+    assert.equal(await a.locator('#workshopBuild').textContent(), 'Build ' + build);
+    await a.evaluate(() => clearConsole());
+    assert.equal(await a.locator('#workshopBuild').isVisible(), true);
+    assert.equal(await a.locator('#workshopBuild').textContent(), 'Build ' + build);
+    assert.equal(await a.locator('#ws-load-dialog').count(), 1, 'the new loading handler must be installed too');
   });
 
   await t.test('sound buttons print a seed and play without touching the parent frame', async () => {

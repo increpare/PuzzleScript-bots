@@ -122,6 +122,10 @@ right-button events, their region, timing and movement limits, and the send/broa
 does not log document text, identity or credentials. The `ready` line identifies this diagnostic
 build when investigating input that Discord does not appear to deliver.
 
+Workshop client scripts use content-versioned URLs so a new deployment fetches fresh code through
+Discord's proxy. The participant strip shows a persistent `Build` identifier, which remains visible
+after clearing the console or running a game, so users can verify which client release loaded.
+
 `npm run test:workshop-browser` checks the real labs editor in Chromium inside a cross-origin frame
 with downloads blocked, using two participants. It needs a labs checkout with Playwright installed
 and its Chromium browser available. Set `PUZZLESCRIPT_LABS_DIR` to that checkout; by default it uses

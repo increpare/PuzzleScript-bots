@@ -106,6 +106,12 @@
   document.head.appendChild(style);
   const roster = document.createElement('div');
   roster.id = 'workshopRoster';
+  const buildLabel = document.createElement('span');
+  buildLabel.id = 'workshopBuild';
+  buildLabel.textContent = 'Build ' + (document.currentScript?.dataset.workshopBuild || 'unversioned');
+  buildLabel.title = 'Loaded workshop client version';
+  buildLabel.style.cssText = 'font-size:10px;opacity:0.75';
+  roster.appendChild(buildLabel);
   (document.getElementById('leftpanel') || document.body).appendChild(roster);
 
   // Another person's cursor is a thin bar in their colour. navigation.js positions its name

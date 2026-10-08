@@ -53,7 +53,7 @@ test('loading shared games in a Discord-like frame', async (t) => {
   const errors = [];
   for (const name of ['Ada', 'Bob']) {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-    await context.route('**/vendor/embedded-app-sdk.js', (route) => route.fulfill({ contentType: 'application/javascript', body: `window.__openedLinks=[]; window.DiscordEmbeddedAppSDK={DiscordSDK:class {platform='desktop';ready(){return Promise.resolve()} commands={authorize:async()=>({code:${JSON.stringify(name)}}),authenticate:async()=>({}),openExternalLink:async({url})=>{window.__openedLinks.push(url);return {opened:true}}}}};` }));
+    await context.route('**/vendor/embedded-app-sdk.js*', (route) => route.fulfill({ contentType: 'application/javascript', body: `window.__openedLinks=[]; window.DiscordEmbeddedAppSDK={DiscordSDK:class {platform='desktop';ready(){return Promise.resolve()} commands={authorize:async()=>({code:${JSON.stringify(name)}}),authenticate:async()=>({}),openExternalLink:async({url})=>{window.__openedLinks.push(url);return {opened:true}}}}};` }));
     const page = await context.newPage();
     page.on('pageerror', (e) => errors.push(name + ': ' + e.message));
     await page.goto('http://localhost:' + wrapper.address().port + '/');
