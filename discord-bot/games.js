@@ -153,6 +153,63 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
     pool.drop(rec.gameId).catch(() => {});
   }
 
+  // A press, or a line of typed moves, on a game. make() has the pool make them and says which were
+  // made: { made: [the actions], snapshot, gif }. by: the display name of whoever it was.
+  function play(gameId, by, make) {
+    if (closed) return Promise.reject(closedError());
+    markBusy(gameId);
+    return enqueue(gameId, async () => {
+     try {
+      const rec = records.get(gameId);
+      if (!rec) throw Object.assign(new Error('unknown game'), { name: 'NoGameError' });
+      if (rec.status !== 'playing') {
+        return { record: rec, snapshot: syntheticSnapshot(rec), applied: false };
+      }
+      try {
+        await ensureLive(rec);
+        const { made, snapshot, gif } = await make();
+        const applied = made.length > 0;
+        if (applied) { rec.inputs.push(...made); refusals.delete(gameId); if (by) rec.lastMover = String(by).slice(0, 80); }
+        // A level is solved when a move (not continue/undo/restart) takes play from a level to a later one.
+        const prev = rec.cur;
+        // (Typed moves stop where play leaves the level, so the last of them is the one that did it.)
+        const isMove = applied && !['continue', 'undo', 'restart'].includes(made[made.length - 1]);
+        const advanced = snapshot.kind === 'finished' || snapshot.levelIndex > (prev ? prev.levelIndex : Infinity);
+        const solvedLevel = isMove && prev && prev.kind === 'level' && advanced ? prev.levelIndex : null;
+        rec.cur = { kind: snapshot.kind, levelIndex: snapshot.levelIndex };
+        if (snapshot.kind === 'finished') rec.status = 'finished';
+        if (applied || snapshot.kind === 'finished') persist(rec);
+        return { record: rec, snapshot, applied, made: made.length, solvedLevel, gif: gif || null };
+      } catch (e) {
+        if (e.name === 'EngineError' || e.name === 'CompileError' || e.name === 'ResourceError') markDead(rec, e);
+        // EvictedError (bystander of another game's timeout) and other transient failures leave the game as it is
+        else if (!['EvictedError', 'PoolClosedError', 'RegistryClosedError', 'GistError'].includes(e.name)) {
+          // A move that took too long (MoveTooLongError, or TimeoutError when the worker had to be
+          // stopped) is refused, not fatal: it was never added to the input log. Like any unknown
+          // failure it may have left the live game part-way through a move, so that copy is thrown
+          // away and the next press rebuilds the game from the log.
+          await pool.drop(gameId).catch(() => {});
+          forgetLive(gameId);
+          // The pool or its worker no longer had the game. The record is fine, and pressing again rebuilds it.
+          if (e.name === 'NoGameError') throw Object.assign(new Error('the game has to be rebuilt'), { name: 'EvictedError' });
+          if (e.name === 'MoveTooLongError' || e.name === 'TimeoutError') {
+            // Each refusal costs a worker seconds of work, and a TimeoutError costs every game on that
+            // worker a rebuild, so a game that does nothing else is stopped.
+            const n = (refusals.get(gameId) || 0) + 1;
+            refusals.set(gameId, n);
+            if (n >= MAX_REFUSALS) {
+              const fatal = Object.assign(new Error('its moves kept taking too long'), { name: 'EngineError' });
+              markDead(rec, fatal);
+              throw fatal;
+            }
+          }
+        }
+        throw e;
+      }
+     } finally { unmarkBusy(gameId); }
+    });
+  }
+
   return {
     // startLevelNumber counts real levels from 1, skipping message screens.
     // level: a sent level (a record from the level store). The game is then that one level.
@@ -187,55 +244,18 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
     },
 
     press(gameId, action, by) {
-      if (closed) return Promise.reject(closedError());
-      markBusy(gameId);
-      return enqueue(gameId, async () => {
-       try {
-        const rec = records.get(gameId);
-        if (!rec) throw Object.assign(new Error('unknown game'), { name: 'NoGameError' });
-        if (rec.status !== 'playing') {
-          return { record: rec, snapshot: syntheticSnapshot(rec), applied: false };
-        }
-        try {
-          await ensureLive(rec);
-          const { applied, snapshot, gif } = await pool.play(gameId, action, { animate: true });
-          if (applied) { rec.inputs.push(action); refusals.delete(gameId); if (by) rec.lastMover = String(by).slice(0, 80); }
-          // A level is solved when a move (not continue/undo/restart) takes play from a level to a later one.
-          const prev = rec.cur;
-          const isMove = applied && !['continue', 'undo', 'restart'].includes(action);
-          const advanced = snapshot.kind === 'finished' || snapshot.levelIndex > (prev ? prev.levelIndex : Infinity);
-          const solvedLevel = isMove && prev && prev.kind === 'level' && advanced ? prev.levelIndex : null;
-          rec.cur = { kind: snapshot.kind, levelIndex: snapshot.levelIndex };
-          if (snapshot.kind === 'finished') rec.status = 'finished';
-          if (applied || snapshot.kind === 'finished') persist(rec);
-          return { record: rec, snapshot, applied, solvedLevel, gif: gif || null };
-        } catch (e) {
-          if (e.name === 'EngineError' || e.name === 'CompileError' || e.name === 'ResourceError') markDead(rec, e);
-          // EvictedError (bystander of another game's timeout) and other transient failures leave the game as it is
-          else if (!['EvictedError', 'PoolClosedError', 'RegistryClosedError', 'GistError'].includes(e.name)) {
-            // A move that took too long (MoveTooLongError, or TimeoutError when the worker had to be
-            // stopped) is refused, not fatal: it was never added to the input log. Like any unknown
-            // failure it may have left the live game part-way through a move, so that copy is thrown
-            // away and the next press rebuilds the game from the log.
-            await pool.drop(gameId).catch(() => {});
-            forgetLive(gameId);
-            // The pool or its worker no longer had the game. The record is fine, and pressing again rebuilds it.
-            if (e.name === 'NoGameError') throw Object.assign(new Error('the game has to be rebuilt'), { name: 'EvictedError' });
-            if (e.name === 'MoveTooLongError' || e.name === 'TimeoutError') {
-              // Each refusal costs a worker seconds of work, and a TimeoutError costs every game on that
-              // worker a rebuild, so a game that does nothing else is stopped.
-              const n = (refusals.get(gameId) || 0) + 1;
-              refusals.set(gameId, n);
-              if (n >= MAX_REFUSALS) {
-                const fatal = Object.assign(new Error('its moves kept taking too long'), { name: 'EngineError' });
-                markDead(rec, fatal);
-                throw fatal;
-              }
-            }
-          }
-          throw e;
-        }
-       } finally { unmarkBusy(gameId); }
+      return play(gameId, by, async () => {
+        const { applied, snapshot, gif } = await pool.play(gameId, action, { animate: true });
+        return { made: applied ? [action] : [], snapshot, gif };
+      });
+    },
+
+    // Typed moves, made as one press. The game takes them in turn until it refuses one or play
+    // leaves the level, and only those it took are recorded. made: how many that was.
+    run(gameId, actions, by) {
+      return play(gameId, by, async () => {
+        const { made, snapshot, gif } = await pool.run(gameId, actions, { animate: true });
+        return { made: actions.slice(0, made), snapshot, gif };
       });
     },
 

@@ -63,6 +63,30 @@ test('a call queued behind a long call is not charged for the wait', async () =>
   } finally { await pool.close(); }
 });
 
+test('a typed run goes through a worker and comes back with how many moves were made', async () => {
+  const pool = createPool({ size: 1 });
+  try {
+    await pool.load('a', SOKOBAN, 'seed', 0);
+    const r = await pool.run('a', ['up', 'up', 'left'], { animate: true });
+    assert.deepEqual([r.made, r.snapshot.kind], [3, 'level']);
+    assert.equal(Buffer.from(r.gif).toString('latin1', 0, 6), 'GIF89a');
+  } finally { await pool.close(); }
+});
+
+test('sounds and sprites are made in a worker without any game, and leave its games alone', async () => {
+  const pool = createPool({ size: 1 });
+  try {
+    await pool.load('a', SOKOBAN, 'seed', 0);
+    const sound = await pool.sound(9675111);
+    assert.equal(Buffer.from(sound.wav).toString('latin1', 0, 4), 'RIFF');
+    const drawn = await pool.sprites('Player\nred');
+    assert.deepEqual([drawn.ok, drawn.names], [true, ['Player']]);
+    assert.equal((await pool.snapshot('a')).kind, 'level');
+  } finally { await pool.close(); }
+  await assert.rejects(pool.sound(9675111), (e) => e.name === 'PoolClosedError');
+  await assert.rejects(pool.sprites('Player\nred'), (e) => e.name === 'PoolClosedError');
+});
+
 test('close rejects in-flight calls promptly', async () => {
   const pool = createPool({ size: 1, inputMs: 5000 });
   await pool.load('a', SOKOBAN, 'seed', 0);

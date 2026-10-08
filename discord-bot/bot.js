@@ -8,7 +8,12 @@ const { renderSnapshot } = require('./renderer');
 const { loadGallery, suggest } = require('./gallery');
 const { createScores } = require('./scores');
 const { createSourceStore } = require('./sources');
-const { buildComponents, buildEmbed, levelFile, parseCustomId, userMessage, workshopDoor, WORKSHOP_BUTTON } = require('./presentation');
+const {
+  buildComponents, buildEmbed, levelFile, parseCustomId, userMessage, workshopDoor, movesModal, typedShortfall, spriteModal, spriteMessage, spriteProblems,
+  WORKSHOP_BUTTON, MOVES_MODAL, MOVES_FIELD, SPRITE_MODAL, SPRITE_FIELD,
+} = require('./presentation');
+const { parseMoves } = require('./moves');
+const { parseSound, suggestSounds } = require('./sfx');
 const { planRoleChange, applyRoleChange } = require('./roles');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -191,11 +196,54 @@ async function main() {
     return tail;
   }
 
+  // What follows a press, or a line of typed moves: the game's message is redrawn, a solved level is
+  // credited, and a failure is said on the message. make() has the registry make the moves.
+  // typed: how many moves were typed, when they were typed and not pressed.
+  async function played(interaction, gameId, what, make, typed = null) {
+    const t0 = Date.now();
+    console.log('press', what, gameId, 'gateway-lag', t0 - interaction.createdTimestamp, 'ms');
+    if (!registry.get(gameId)) {
+      await interaction.reply({ content: 'this game is no longer available', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await interaction.deferUpdate();
+    console.log('ack', Date.now() - t0, 'ms');
+    try {
+      const { record, snapshot, applied, made, solvedLevel, gif } = await make();
+      console.log('applied', applied, gif ? 'gif ' + gif.length + ' bytes' : 'still', Date.now() - t0, 'ms');
+      const solved = solvedLevel !== null && solvedLevel !== undefined;
+      // A sent level lists its solvers on its own message, so they are noted before it is drawn.
+      if (solved && record.levelId) levelStore.addSolver(record.levelId, { id: interaction.user.id, name: displayName(interaction) });
+      await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot, gif, canTweak(interaction), levelOf(record))));
+      console.log('edited', Date.now() - t0, 'ms');
+      // Typed moves that were not all made: only whoever typed them is told.
+      const short = typed === null ? null : typedShortfall({ made: made || 0, asked: typed, snapshot, solved });
+      if (short) await interaction.followUp({ content: short, flags: MessageFlags.Ephemeral }).catch((e) => console.error('typed moves note failed', e && e.code));
+      // Ranks are for the games' own levels: a sent level could be made trivial to gain rank.
+      if (solved && !record.levelId) {
+        const s = scores.credit(interaction.user.id, record.gistId, solvedLevel);
+        // Rank-ups are announced only in the score channel (or wherever the game is, if none is configured).
+        const here = !cfg.scoreChannelId || cfg.scoreChannelId === interaction.channelId;
+        if (s.rankedUp && here) {
+          const levels = s.count === 1 ? '1 level' : s.count + ' levels';
+          await interaction.followUp({ content: '<@' + interaction.user.id + '> has solved ' + levels + ' and reached rank ' + s.rank + '.' })
+            .catch((e) => console.error('rank announcement failed', e && e.code));
+        }
+      }
+    } catch (err) {
+      // Keep the existing embed and image; keep buttons while the game is still playable.
+      const rec = registry.get(gameId);
+      const playable = rec && rec.status === 'playing';
+      await enqueueEdit(gameId, () => interaction.editReply({ content: userMessage(err), ...(playable ? {} : { components: [] }) }));
+    }
+  }
+
   client.on('interactionCreate', async (interaction) => {
-    if (interaction.isAutocomplete() && interaction.commandName === 'play') {
+    if (interaction.isAutocomplete()) {
       try {
         const focused = interaction.options.getFocused();
-        await interaction.respond(suggest(gallery, focused));
+        if (interaction.commandName === 'play') await interaction.respond(suggest(gallery, focused));
+        else if (interaction.commandName === 'sfx') await interaction.respond(suggestSounds(focused));
       } catch (err) {
         console.error('autocomplete failed', err);
       }
@@ -274,6 +322,54 @@ async function main() {
         }
         return;
       }
+      if (interaction.isChatInputCommand() && interaction.commandName === 'sfx') {
+        const asked = parseSound(interaction.options.getString('sound'));
+        if (!asked.ok) {
+          await interaction.reply({ content: asked.error, flags: MessageFlags.Ephemeral });
+          return;
+        }
+        await interaction.deferReply();
+        try {
+          const { wav } = await pool.sound(asked.seed);
+          // the seed is there to be copied into a game's SOUNDS section
+          await interaction.editReply({ content: '`' + asked.seed + '` ' + asked.kind, files: [new AttachmentBuilder(Buffer.from(wav), { name: asked.seed + '.wav' })] });
+        } catch (err) {
+          console.error('sound failed', asked.seed, err);
+          await interaction.editReply({ content: err && err.name === 'PoolClosedError' ? userMessage(err) : 'that sound could not be made' });
+        }
+        return;
+      }
+      if (interaction.isChatInputCommand() && interaction.commandName === 'sprite') {
+        // An object is several lines, and a command's options are one line each, so it is typed into a box.
+        await interaction.showModal(spriteModal());
+        return;
+      }
+      if (interaction.isModalSubmit() && interaction.customId === SPRITE_MODAL) {
+        const text = interaction.fields.getTextInputValue(SPRITE_FIELD);
+        await interaction.deferReply();
+        try {
+          const drawn = await pool.sprites(text);
+          if (!drawn.ok) await interaction.editReply({ content: spriteProblems(drawn.problems) });
+          else await interaction.editReply({ content: spriteMessage({ names: drawn.names, notes: drawn.notes, text }), files: [new AttachmentBuilder(Buffer.from(drawn.png), { name: 'sprites.png' })] });
+        } catch (err) {
+          console.error('sprites failed', err);
+          await interaction.editReply({ content: err && err.name === 'PoolClosedError' ? userMessage(err) : 'those sprites could not be drawn' });
+        }
+        return;
+      }
+      if (interaction.isModalSubmit() && interaction.customId === MOVES_MODAL) {
+        // The box was opened from a game's own message, and that message says which game the moves are for.
+        if (!interaction.isFromMessage()) return;
+        const gameId = interaction.message.id;
+        const rec = registry.get(gameId);
+        const typed = rec ? parseMoves(interaction.fields.getTextInputValue(MOVES_FIELD), rec.meta && rec.meta.flags) : null;
+        if (!typed || !typed.ok) {
+          await interaction.reply({ content: typed ? typed.error : 'this game is no longer available', flags: MessageFlags.Ephemeral });
+          return;
+        }
+        await played(interaction, gameId, 'typed x' + typed.actions.length, () => registry.run(gameId, typed.actions, displayName(interaction)), typed.actions.length);
+        return;
+      }
       if (interaction.isButton()) {
         const action = parseCustomId(interaction.customId);
         if (!action) return;
@@ -300,41 +396,17 @@ async function main() {
           await interaction.launchActivity();
           return;
         }
-        const t0 = Date.now();
-        console.log('press', action, gameId, 'gateway-lag', t0 - interaction.createdTimestamp, 'ms');
-        if (!registry.get(gameId)) {
-          await interaction.reply({ content: 'this game is no longer available', flags: MessageFlags.Ephemeral });
+        if (action === 'moves') {
+          const rec = registry.get(gameId);
+          if (!rec) {
+            await interaction.reply({ content: 'this game is no longer available', flags: MessageFlags.Ephemeral });
+            return;
+          }
+          // The only answer: a box cannot be opened once the press has been answered in any other way.
+          await interaction.showModal(movesModal(rec.meta && rec.meta.flags));
           return;
         }
-        await interaction.deferUpdate();
-        console.log('ack', Date.now() - t0, 'ms');
-        try {
-          const { record, snapshot, applied, solvedLevel, gif } = action === 'again'
-            ? await registry.again(gameId)
-            : await registry.press(gameId, action, displayName(interaction));
-          console.log('applied', applied, gif ? 'gif ' + gif.length + ' bytes' : 'still', Date.now() - t0, 'ms');
-          const solved = solvedLevel !== null && solvedLevel !== undefined;
-          // A sent level lists its solvers on its own message, so they are noted before it is drawn.
-          if (solved && record.levelId) levelStore.addSolver(record.levelId, { id: interaction.user.id, name: displayName(interaction) });
-          await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot, gif, canTweak(interaction), levelOf(record))));
-          console.log('edited', Date.now() - t0, 'ms');
-          // Ranks are for the games' own levels: a sent level could be made trivial to gain rank.
-          if (solved && !record.levelId) {
-            const s = scores.credit(interaction.user.id, record.gistId, solvedLevel);
-            // Rank-ups are announced only in the score channel (or wherever the game is, if none is configured).
-            const here = !cfg.scoreChannelId || cfg.scoreChannelId === interaction.channelId;
-            if (s.rankedUp && here) {
-              const levels = s.count === 1 ? '1 level' : s.count + ' levels';
-              await interaction.followUp({ content: '<@' + interaction.user.id + '> has solved ' + levels + ' and reached rank ' + s.rank + '.' })
-                .catch((e) => console.error('rank announcement failed', e && e.code));
-            }
-          }
-        } catch (err) {
-          // Keep the existing embed and image; keep buttons while the game is still playable.
-          const rec = registry.get(gameId);
-          const playable = rec && rec.status === 'playing';
-          await enqueueEdit(gameId, () => interaction.editReply({ content: userMessage(err), ...(playable ? {} : { components: [] }) }));
-        }
+        await played(interaction, gameId, action, () => (action === 'again' ? registry.again(gameId) : registry.press(gameId, action, displayName(interaction))));
       }
     } catch (err) {
       console.error('interaction failed', err);

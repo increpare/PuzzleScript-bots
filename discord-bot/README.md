@@ -102,3 +102,25 @@ Whoever makes the winning move on a level gets credit for it, once per game and 
 `/role <keyword>` gives you a joke role named after a PuzzleScript keyword: CRATE, PLAYER, BACKGROUND, WALL, TARGET, DIRECTION, SFX or WIN. You hold one at a time, so picking another swaps it, and `/role none` drops it. Replies are private.
 
 The bot does not create the roles. Each must exist on the server under the keyword's name (capitalisation does not matter), and the bot's own role must sit above them in the server's role list, or Discord refuses the change. The bot only ever touches roles on the list in `roles.js`. To add a keyword, add it there, create the role on the server, and run `node register-commands.js` again.
+
+## Typed moves
+
+The ⌨️ button under a game opens a box for a line of moves: `u d l r` for the directions, `x` for action and `z` for undo. Restart has no letter. Capitals, spaces and commas are ignored. Any other letter refuses the whole line, and so does `x` or `z` in a game that has no action or no undo.
+
+The moves are made as one press, by whoever typed them, and the game's message is redrawn once with one GIF of the whole run: where it started, then a move every 150 ms. The turns of an `again` chain inside the run go by at the game's own `again_interval`. The run stops where a level is solved, a message comes up or the game stops taking moves (an animation that loops), and whoever typed is told privately how many of the moves were made. Only those are recorded. The whole line shares one move's time limit of 20 s.
+
+A line holds at most 50 moves. Discord cuts an animation short past a length it does not publish, and fifty moves are about eight seconds.
+
+## Sounds
+
+`/sfx 36772507` posts the sound of that seed as a WAV file. `/sfx explosion` makes a new seed of that kind, the way the editor's sound buttons do (the ten kinds are suggested as you type), and `/sfx` alone picks a kind. The reply gives the seed, to copy into a game's SOUNDS section.
+
+The sound is made by the engine's own generator and put through the filter the editor plays it through. The noise in a sound differs from one playing to the next, as it does in the editor: the engine does not seed it.
+
+## Sprites
+
+`/sprite` opens a box for object definitions as an OBJECTS section holds them (a name, its colours, then five rows of five), and posts them drawn large on a transparent background, with their text for others to copy. A whole OBJECTS section can be pasted, heading and all; up to 40 objects are drawn.
+
+They are read by the engine's own parser, so what it would refuse in a game is refused here in the same words. Colours are those of the default palette.
+
+Both commands are for everyone, in every channel. After a change to either, run `node register-commands.js` again.

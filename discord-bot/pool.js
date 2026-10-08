@@ -109,6 +109,12 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, totalMs = 200
     });
   }
 
+  // Work that belongs to no game goes to the workers in turn.
+  function anyWorker(op, args) {
+    if (closed) return Promise.reject(Object.assign(new Error('pool closed'), { name: 'PoolClosedError' }));
+    return call(workers[rr++ % workers.length], null, op, args, inputMs);
+  }
+
   function entryFor(gameId) {
     const e = gameToWorker.get(gameId);
     if (!e) throw Object.assign(new Error('no such game'), { name: 'NoGameError' });
@@ -136,6 +142,12 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, totalMs = 200
     // {applied, snapshot, gif}: one move, the picture it leaves, and with animate an animation of its
     // again turns (null when the move took a single turn or the animation could not be made)
     play(gameId, action, { animate = false } = {}) { return call(entryFor(gameId), gameId, 'play', { action, animate }, inputMs); },
+    // {made, snapshot, gif}: typed moves made as one press. made is how many of them the game took.
+    run(gameId, actions, { animate = false } = {}) { return call(entryFor(gameId), gameId, 'run', { actions, animate }, inputMs); },
+    // {wav, seconds}: the sound of a seed, as the editor plays it (see sfx.js)
+    sound(seed) { return anyWorker('sound', { seed }); },
+    // {ok, names, notes, png} or {ok: false, problems}: object definitions drawn as a picture (see sprites.js)
+    sprites(text) { return anyWorker('sprites', { text }); },
     snapshot(gameId) { return call(entryFor(gameId), gameId, 'snapshot', {}, inputMs); },
     tiles(gameId) { return call(entryFor(gameId), gameId, 'tiles', {}, inputMs); },
     // A level as the text a LEVELS section would hold: with levelIndex, that level as written;

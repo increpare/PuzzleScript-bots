@@ -513,3 +513,91 @@ test('playing again is only for stored levels: a normal game is left as it is', 
     assert.deepEqual(r.record.inputs, ['right']);
   } finally { await reg.close(); await pool.close(); }
 });
+
+test('typed moves are recorded as the presses they stand for, under the name of whoever typed them', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const reg = createRegistry({ dataDir: dir, pool, getSource });
+  try {
+    await reg.start({ gameId: 't', channelId: 'c', gistId: 'sok' });
+    await reg.press('t', 'down', 'Bob');
+    const r = await reg.run('t', ['up', 'up', 'left'], 'Ada');
+    assert.deepEqual([r.made, r.applied, r.solvedLevel], [3, true, null]);
+    assert.deepEqual(r.record.inputs, ['down', 'up', 'up', 'left']);
+    assert.equal(r.record.lastMover, 'Ada');
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'games', 't.json'), 'utf8')).inputs, ['down', 'up', 'up', 'left']);
+  } finally { await reg.close(); await pool.close(); }
+});
+
+test('typed moves that win a level stop there: the level is reported solved and the rest are not recorded', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const two = fs.readFileSync(path.join(__dirname, 'fixtures', 'two-level-random.txt'), 'utf8');
+  const reg = createRegistry({ dataDir: dir, pool, getSource: async () => two });
+  try {
+    await reg.start({ gameId: 'w', channelId: 'c', gistId: 'abcd' });
+    const win = await reg.run('w', ['right', 'left', 'left'], 'Ada');
+    assert.deepEqual([win.made, win.solvedLevel, win.snapshot.levelIndex], [1, 0, 1]);
+    assert.deepEqual(win.record.inputs, ['right']);
+    const on = await reg.run('w', ['left', 'left'], 'Ada');
+    assert.deepEqual([on.made, on.solvedLevel], [2, null], 'moving about the next level solves nothing');
+  } finally { await reg.close(); await pool.close(); }
+});
+
+test('typed moves that the game takes none of change nothing', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const reg = createRegistry({ dataDir: dir, pool, getSource: async () => LOOP_SRC });
+  try {
+    await reg.start({ gameId: 'lp', channelId: 'c', gistId: 'abcd' });
+    await reg.run('lp', ['right', 'right'], 'Bob'); // the bomb goes off and flickers for ever
+    const r = await reg.run('lp', ['left', 'left'], 'Ada');
+    assert.deepEqual([r.made, r.applied, r.gif], [0, false, null]);
+    assert.deepEqual(r.record.inputs, ['right', 'right']);
+    assert.equal(r.record.lastMover, 'Bob');
+  } finally { await reg.close(); await pool.close(); }
+});
+
+test('typed moves come back as one animation', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const reg = createRegistry({ dataDir: dir, pool, getSource });
+  try {
+    await reg.start({ gameId: 'g', channelId: 'c', gistId: 'sok' });
+    const r = await reg.run('g', ['up', 'up']);
+    assert.equal(Buffer.from(r.gif).toString('latin1', 0, 6), 'GIF89a');
+  } finally { await reg.close(); await pool.close(); }
+});
+
+test('a game rebuilt from its log after typed moves is where they left it', async () => {
+  const dir = tmp();
+  const pool = createPool({ size: 1 });
+  const reg = createRegistry({ dataDir: dir, pool, getSource: async () => SLIDE_SRC });
+  try {
+    await reg.start({ gameId: 'rb', channelId: 'c', gistId: 'abcd' });
+    const before = (await reg.run('rb', ['right', 'right', 'right'])).snapshot;
+    await pool.drop('rb');
+    const after = (await reg.press('rb', 'up')).snapshot; // into the wall: the board as it was rebuilt
+    assert.deepEqual(after.cells, before.cells);
+  } finally { await reg.close(); await pool.close(); }
+});
+
+test('typed moves that take too long are refused like a press: nothing is recorded, and the game is rebuilt', async () => {
+  const dir = tmp();
+  const real = createPool({ size: 1 });
+  let fail = true;
+  const pool = Object.assign({}, real, {
+    async run(id, actions, opts) {
+      if (fail) { fail = false; await real.drop(id); throw Object.assign(new Error('the move took too long'), { name: 'MoveTooLongError' }); }
+      return real.run(id, actions, opts);
+    },
+  });
+  const reg = createRegistry({ dataDir: dir, pool, getSource });
+  try {
+    await reg.start({ gameId: 'sl', channelId: 'c', gistId: 'sok' });
+    await assert.rejects(reg.run('sl', ['up', 'up']), (e) => e.name === 'MoveTooLongError');
+    assert.deepEqual(reg.get('sl').inputs, []);
+    assert.equal(reg.get('sl').status, 'playing');
+    assert.equal((await reg.run('sl', ['up', 'up'])).made, 2);
+  } finally { await reg.close(); await real.close(); }
+});

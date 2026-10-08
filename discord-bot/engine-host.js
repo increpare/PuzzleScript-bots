@@ -17,6 +17,8 @@ const STEP_CAP = 1000;
 const MAX_FRAMES = 300;
 const MAX_CAPTURE_BYTES = 16 * 1024 * 1024;
 const DEFAULT_AGAIN_INTERVAL_MS = 150; // the engine's own default
+// How long each move of a typed run stays on screen: as long as a held key takes to repeat.
+const RUN_MOVE_MS = 150;
 const REPLAY_BUDGET_SCALE = 3;
 
 class CompileError extends Error {}
@@ -103,9 +105,15 @@ function levelNumbering(levels, cur) {
 
 // totalMs: wall-clock budget for one input's whole chain (checked between turns).
 // onStep: called after every turn the engine runs, so a caller can tell slow progress from none.
-function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FRAMES, onStep = null, now = Date.now } = {}) {
+// A fresh context with the engine loaded in it and nothing compiled.
+function createEngineContext() {
   const ctx = vm.createContext(makeSandbox());
   getEngineScript().runInContext(ctx);
+  return ctx;
+}
+
+function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FRAMES, onStep = null, now = Date.now } = {}) {
+  const ctx = createEngineContext();
   getLevelTextScript().runInContext(ctx);
   // Top-level let bindings in the engine are not properties of the context
   // global, so expose the ones we need through accessors (same global lexical scope).
@@ -200,18 +208,22 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
     const c = call && call.capture;
     call = null;
     if (!c || !c.ok || c.list.length < 2) return;
-    const md = ps.state.metadata || {};
-    const interval = Number(md.again_interval);
     lastFrames = {
       list: c.list,
       loop: pending === 'loop' && loopIsWhole,
-      intervalMs: Number.isFinite(interval) && interval > 0 ? Math.round(interval * 1000) : DEFAULT_AGAIN_INTERVAL_MS,
+      intervalMs: againIntervalMs(),
       stride: ps.STRIDE_OBJ,
       objectCount: ps.state.objectCount,
       sprites: allSprites(),
       background: hexColor(ps.state.bgcolor),
       textColor: hexColor(ps.state.fgcolor),
     };
+  }
+
+  // The time between the turns of an again chain, which is also the time one frame is shown for.
+  function againIntervalMs() {
+    const interval = Number((ps.state.metadata || {}).again_interval);
+    return Number.isFinite(interval) && interval > 0 ? Math.round(interval * 1000) : DEFAULT_AGAIN_INTERVAL_MS;
   }
 
   // A digest of everything the next turn depends on: which level it is, the level itself, pending
@@ -465,6 +477,38 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
     try { return doInput(action); } finally { end(); }
   }
 
+  // Keeps the newest frame on screen long enough to be read: a frame is shown for a whole number
+  // of again intervals, and a move of a run is to last at least RUN_MOVE_MS.
+  function holdFrame() {
+    const c = call && call.capture;
+    if (!c || !c.ok || c.list.length === 0) return;
+    c.list[c.list.length - 1].repeat += Math.ceil(RUN_MOVE_MS / againIntervalMs()) - 1;
+  }
+
+  // Several moves made as one, for moves that are typed rather than pressed. Each is made in turn
+  // until the game does not take one or play leaves the level it began on (for a message, the next
+  // level or the end). Returns how many were made. Captured, it is one animation: where the run
+  // starts, then every move, with the board held after each as long as a held key takes to repeat.
+  function run(actions, { capture = false } = {}) {
+    begin(capture);
+    let made = 0;
+    try {
+      const startLevel = ps.curlevel | 0;
+      if (call.capture) { captureFrame(); holdFrame(); }
+      for (const action of actions) {
+        if (!doInput(action)) break;
+        made++;
+        holdFrame();
+        if (kindNow() !== 'level' || (ps.curlevel | 0) !== startLevel) break;
+      }
+      return made;
+    } finally {
+      // A loop that ends a run cannot be shown by repeating its frames: they open with the moves that led to it.
+      loopIsWhole = false;
+      end();
+    }
+  }
+
   // The frames of the last input, if it was captured and ran for more than one turn. Handed over once.
   function takeFrames() {
     const f = lastFrames;
@@ -484,6 +528,7 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
   return {
     load,
     input,
+    run,
     tick,
     replay,
     takeFrames,
@@ -506,4 +551,4 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
   };
 }
 
-module.exports = { createHost, CompileError, EngineError, MoveTooLongError, REPLAY_BUDGET_SCALE };
+module.exports = { createHost, createEngineContext, CompileError, EngineError, MoveTooLongError, REPLAY_BUDGET_SCALE };

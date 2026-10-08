@@ -19,9 +19,16 @@ async function main() {
   // Shown to server administrators only while the workshop is being tested. Who else sees it, and
   // where, can be changed in the server's Integrations settings.
   const workshop = new SlashCommandBuilder().setName('workshop').setDescription('Open the shared PuzzleScript editor').setDefaultMemberPermissions(0);
+  // The sound is one option that takes a seed or a kind: the kinds are suggested as it is typed.
+  const sfx = new SlashCommandBuilder()
+    .setName('sfx')
+    .setDescription('Hear a PuzzleScript sound')
+    .addStringOption((o) => o.setName('sound').setDescription('A sound seed, or a kind of sound to get a new seed for. Leave it out for any kind.').setAutocomplete(true));
+  // No options: an object is several lines, so the command opens a box to type it into.
+  const sprite = new SlashCommandBuilder().setName('sprite').setDescription('Draw PuzzleScript objects from their text');
   const rest = new REST({ version: '10' }).setToken(cfg.discordToken);
-  await rest.put(Routes.applicationGuildCommands(cfg.appId, cfg.guildId), { body: [play.toJSON(), rank.toJSON(), role.toJSON(), workshop.toJSON()] });
-  console.log('registered /play, /rank, /role and /workshop for guild', cfg.guildId);
+  await rest.put(Routes.applicationGuildCommands(cfg.appId, cfg.guildId), { body: [play.toJSON(), rank.toJSON(), role.toJSON(), workshop.toJSON(), sfx.toJSON(), sprite.toJSON()] });
+  console.log('registered /play, /rank, /role, /workshop, /sfx and /sprite for guild', cfg.guildId);
 
   // Once Activities are enabled, Discord adds a global Entry Point command that launches the
   // Activity for anyone who picks the app in the launcher. Hand it to the bot, which answers with a

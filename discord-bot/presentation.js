@@ -1,11 +1,12 @@
 'use strict';
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, escapeMarkdown } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, LabelBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, escapeMarkdown } = require('discord.js');
 const { GistError } = require('./gists');
 
-// tweak and again are not moves. tweak opens the level editor and again starts a solved sent level
-// afresh (see bot.js); neither reaches the game registry as an input.
-const ACTIONS = ['up', 'left', 'down', 'right', 'action', 'undo', 'restart', 'continue', 'tweak', 'again'];
-const ACTION_EMOJI = { left: '⬅️', up: '⬆️', down: '⬇️', right: '➡️', action: '✖️', undo: '↩️', restart: '🔄', continue: '▶️', tweak: '✏️', again: '🔁' };
+// moves, tweak and again are not moves. moves opens a box to type moves into, tweak opens the level
+// editor and again starts a solved sent level afresh (see bot.js); none reaches the game registry as
+// an input.
+const ACTIONS = ['up', 'left', 'down', 'right', 'action', 'undo', 'restart', 'continue', 'moves', 'tweak', 'again'];
+const ACTION_EMOJI = { left: '⬅️', up: '⬆️', down: '⬇️', right: '➡️', action: '✖️', undo: '↩️', restart: '🔄', continue: '▶️', moves: '⌨️', tweak: '✏️', again: '🔁' };
 
 function button(action, style = ButtonStyle.Secondary) {
   return new ButtonBuilder().setCustomId('ps:' + action).setEmoji(ACTION_EMOJI[action]).setStyle(style);
@@ -35,10 +36,59 @@ function buildComponents(snapshot, meta, { tweak = false, again = false } = {}) 
   const row2 = [];
   if (!flags.noundo) row2.push(button('undo'));
   if (!flags.norestart) row2.push(button('restart'));
+  row2.push(button('moves'));
   if (tweak) row2.push(button('tweak'));
-  const rows = [new ActionRowBuilder().addComponents(...row1)];
-  if (row2.length) rows.push(new ActionRowBuilder().addComponents(...row2));
-  return rows;
+  return [new ActionRowBuilder().addComponents(...row1), new ActionRowBuilder().addComponents(...row2)];
+}
+
+// The box the typing button opens: one line of moves, played as one press (see moves.js for the
+// letters). It says only the letters this game takes.
+const MOVES_MODAL = 'ps:typed-moves';
+const MOVES_FIELD = 'moves';
+function movesModal(flags = {}) {
+  let letters = 'u d l r';
+  if (!flags.noaction) letters += ', x for action';
+  if (!flags.noundo) letters += ', z for undo';
+  const line = new TextInputBuilder().setCustomId(MOVES_FIELD).setStyle(TextInputStyle.Short).setPlaceholder('uurrdl').setMinLength(1).setMaxLength(200).setRequired(true);
+  return new ModalBuilder().setCustomId(MOVES_MODAL).setTitle('Type moves')
+    .addLabelComponents(new LabelBuilder().setLabel('Moves').setDescription(letters).setTextInputComponent(line));
+}
+
+// /sprite: the box the command opens, for object definitions as an OBJECTS section holds them.
+const SPRITE_MODAL = 'ps:sprite';
+const SPRITE_FIELD = 'objects';
+function spriteModal() {
+  const field = new TextInputBuilder().setCustomId(SPRITE_FIELD).setStyle(TextInputStyle.Paragraph)
+    .setPlaceholder('Player\nblack orange white blue\n.000.\n.111.\n22222\n.333.\n.3.3.').setMinLength(1).setMaxLength(4000).setRequired(true);
+  return new ModalBuilder().setCustomId(SPRITE_MODAL).setTitle('Draw sprites')
+    .addLabelComponents(new LabelBuilder().setLabel('Objects').setDescription('As in an OBJECTS section: a name, its colours, then five rows of five').setTextInputComponent(field));
+}
+
+// What goes with the picture: the text it was drawn from, for others to copy, when that sits in a
+// code block and leaves room; otherwise the names of what was drawn. Then the engine's warnings.
+function spriteMessage({ names, notes, text }) {
+  const body = String(text).replace(/\r\n?/g, '\n').replace(/^\n+|\s+$/g, '');
+  const said = (notes || []).slice(0, 3).map((n) => '\n' + String(n).slice(0, 200)).join('');
+  if (body.length <= 1200 && !body.includes('```')) return '```\n' + body + '\n```' + said;
+  return escapeMarkdown(names.join(', ')).slice(0, 1200) + said;
+}
+
+function spriteProblems(problems) {
+  const shown = problems.slice(0, 5).map((p) => String(p).slice(0, 300));
+  const more = problems.length - shown.length;
+  return 'That cannot be drawn:\n' + shown.join('\n') + (more > 0 ? '\n… and ' + more + ' more' : '');
+}
+
+// What to tell whoever typed moves when the game did not take them all, or null when it did.
+// made, asked: how many were made, of how many typed. solved: whether they solved the level.
+function typedShortfall({ made, asked, snapshot, solved }) {
+  if (made >= asked) return null;
+  let why = 'the game did not take the next one';
+  if (solved) why = 'the level was solved there';
+  else if (snapshot.kind === 'finished') why = 'the game is over';
+  else if (snapshot.kind === 'message') why = 'a message came up';
+  else if (snapshot.animating) why = 'an animation is running';
+  return (made === 0 ? 'None of those moves were made: ' : 'Only the first ' + made + ' of your ' + asked + ' moves were made: ') + why + '.';
 }
 
 // "Solved by Ada, Bob and Cy": at most ten names, then a count of the rest.
@@ -133,4 +183,7 @@ function workshopDoor() {
   };
 }
 
-module.exports = { buildComponents, buildEmbed, levelFile, parseCustomId, userMessage, workshopDoor, WORKSHOP_BUTTON, ACTION_EMOJI };
+module.exports = {
+  buildComponents, buildEmbed, levelFile, parseCustomId, userMessage, workshopDoor, movesModal, typedShortfall, spriteModal, spriteMessage, spriteProblems,
+  WORKSHOP_BUTTON, MOVES_MODAL, MOVES_FIELD, SPRITE_MODAL, SPRITE_FIELD, ACTION_EMOJI,
+};

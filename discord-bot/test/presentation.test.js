@@ -1,19 +1,19 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildComponents, buildEmbed, parseCustomId } = require('../presentation');
+const { buildComponents, buildEmbed, parseCustomId, movesModal, typedShortfall, spriteModal, spriteMessage, spriteProblems, MOVES_MODAL, MOVES_FIELD, SPRITE_MODAL, SPRITE_FIELD } = require('../presentation');
 
 const meta = (flags) => ({ title: 'T', author: 'A', levelCount: 3, flags: Object.assign({ noaction: false, noundo: false, norestart: false, realtime: false }, flags) });
 const ids = (rows) => rows.map((r) => r.toJSON().components.map((c) => c.custom_id));
 
 test('level frames get movement and control rows', () => {
   const rows = buildComponents({ kind: 'level' }, meta({}));
-  assert.deepEqual(ids(rows), [['ps:left', 'ps:up', 'ps:down', 'ps:right', 'ps:action'], ['ps:undo', 'ps:restart']]);
+  assert.deepEqual(ids(rows), [['ps:left', 'ps:up', 'ps:down', 'ps:right', 'ps:action'], ['ps:undo', 'ps:restart', 'ps:moves']]);
 });
 
 test('flags remove buttons', () => {
-  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({ noaction: true }))), [['ps:left', 'ps:up', 'ps:down', 'ps:right'], ['ps:undo', 'ps:restart']]);
-  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({ noundo: true, norestart: true }))), [['ps:left', 'ps:up', 'ps:down', 'ps:right', 'ps:action']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({ noaction: true }))), [['ps:left', 'ps:up', 'ps:down', 'ps:right'], ['ps:undo', 'ps:restart', 'ps:moves']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({ noundo: true, norestart: true }))), [['ps:left', 'ps:up', 'ps:down', 'ps:right', 'ps:action'], ['ps:moves']]);
 });
 
 test('message frames get a continue button; finished gets none', () => {
@@ -113,9 +113,9 @@ test('errors are worded for the player, and a move that took too long reads as r
 
 test('the tweak button joins the control row of a level, only when asked for', () => {
   const moves = ['ps:left', 'ps:up', 'ps:down', 'ps:right', 'ps:action'];
-  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({}), { tweak: true })), [moves, ['ps:undo', 'ps:restart', 'ps:tweak']]);
-  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({ noundo: true, norestart: true }), { tweak: true })), [moves, ['ps:tweak']]);
-  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({}), { tweak: false })), [moves, ['ps:undo', 'ps:restart']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({}), { tweak: true })), [moves, ['ps:undo', 'ps:restart', 'ps:moves', 'ps:tweak']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({ noundo: true, norestart: true }), { tweak: true })), [moves, ['ps:moves', 'ps:tweak']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({}), { tweak: false })), [moves, ['ps:undo', 'ps:restart', 'ps:moves']]);
   assert.deepEqual(ids(buildComponents({ kind: 'message' }, meta({}), { tweak: true })), [['ps:continue']]);
   assert.deepEqual(ids(buildComponents({ kind: 'level', animating: 'loop' }, meta({}), { tweak: true })), [['ps:undo', 'ps:restart']]);
   assert.equal(parseCustomId('ps:tweak'), 'tweak');
@@ -168,7 +168,7 @@ test('a solved level offers playing again, and the pencil where it is allowed; a
   assert.deepEqual(ids(buildComponents({ kind: 'finished' }, meta({}), { again: true })), [['ps:again']]);
   assert.deepEqual(ids(buildComponents({ kind: 'finished' }, meta({}), { again: true, tweak: true })), [['ps:again', 'ps:tweak']]);
   assert.deepEqual(ids(buildComponents({ kind: 'finished' }, meta({}), { tweak: true })), []);
-  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({}), { again: true })), [['ps:left', 'ps:up', 'ps:down', 'ps:right', 'ps:action'], ['ps:undo', 'ps:restart']]);
+  assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({}), { again: true })), [['ps:left', 'ps:up', 'ps:down', 'ps:right', 'ps:action'], ['ps:undo', 'ps:restart', 'ps:moves']]);
   assert.equal(parseCustomId('ps:again'), 'again');
 });
 
@@ -183,4 +183,76 @@ test('the workshop\'s door is a message with one button, which is not a game but
   assert.equal(buttons[0].custom_id, WORKSHOP_BUTTON);
   assert.equal(buttons[0].label, 'Open the workshop');
   assert.equal(parseCustomId(WORKSHOP_BUTTON), null);
+});
+
+test('typing moves is offered wherever moves are taken, and nowhere else', () => {
+  const has = (snapshot) => ids(buildComponents(snapshot, meta({}))).flat().includes('ps:moves');
+  assert.equal(has({ kind: 'level' }), true);
+  assert.equal(has({ kind: 'level', animating: 'loop' }), false, 'the engine ignores moves while an animation runs');
+  assert.equal(has({ kind: 'level', animating: 'more' }), false);
+  assert.equal(has({ kind: 'message' }), false);
+  assert.equal(has({ kind: 'finished' }), false);
+  assert.equal(parseCustomId('ps:moves'), 'moves');
+});
+
+test('the box for typing moves has one line to type in, and says which letters this game takes', () => {
+  const says = (flags) => {
+    const modal = movesModal(meta(flags).flags).toJSON();
+    assert.equal(modal.custom_id, MOVES_MODAL);
+    assert.equal(modal.components.length, 1);
+    const label = modal.components[0];
+    assert.equal(label.component.custom_id, MOVES_FIELD);
+    return label.label + ' ' + label.description;
+  };
+  assert.match(says({}), /u d l r/);
+  assert.match(says({}), /x.*action/);
+  assert.match(says({}), /z.*undo/);
+  assert.doesNotMatch(says({ noaction: true }), /action/);
+  assert.match(says({ noaction: true }), /undo/);
+  assert.doesNotMatch(says({ noundo: true }), /undo/);
+});
+
+test('the box for /sprite is one large field', () => {
+  const modal = spriteModal().toJSON();
+  assert.equal(modal.custom_id, SPRITE_MODAL);
+  assert.equal(modal.components.length, 1);
+  const field = modal.components[0].component;
+  assert.equal(field.custom_id, SPRITE_FIELD);
+  assert.equal(field.style, 2, 'a paragraph, since an object is several lines');
+});
+
+test('drawn sprites are posted with their text, so that others can copy it', () => {
+  const text = 'Player\nred\n.000.\n.000.\n00000\n.000.\n.0.0.';
+  assert.equal(spriteMessage({ names: ['Player'], notes: [], text: '\n' + text + '\n\n' }), '```\n' + text + '\n```');
+});
+
+test('text that would not sit in a code block is left out, and the sprites are named instead', () => {
+  const long = spriteMessage({ names: ['Player', 'Wall'], notes: [], text: 'Player\nred\n\nWall\ngreen\n' + '\n'.repeat(1600) + 'x' });
+  assert.equal(long, 'Player, Wall');
+  assert.equal(spriteMessage({ names: ['Player'], notes: [], text: 'Player\nred\n```' }), 'Player');
+  const many = spriteMessage({ names: Array.from({ length: 40 }, (_, i) => 'Object_number_' + i), notes: [], text: 'x'.repeat(3000) });
+  assert.ok(many.length <= 2000, 'within what Discord takes: ' + many.length);
+  assert.match(many, /^Object\\_number\\_0, /, 'names are not read as formatting');
+});
+
+test('the engine\'s warnings go under the picture', () => {
+  const said = spriteMessage({ names: ['Rule'], notes: ['line 1 : You named an object "RULE", but this is a keyword. Don\'t do that!'], text: 'Rule\nred' });
+  assert.equal(said, '```\nRule\nred\n```\nline 1 : You named an object "RULE", but this is a keyword. Don\'t do that!');
+});
+
+test('sprites that cannot be drawn get the reasons, however many there are', () => {
+  assert.equal(spriteProblems(['line 2 : Was looking for color for object THING, got "blurple" instead.']), 'That cannot be drawn:\nline 2 : Was looking for color for object THING, got "blurple" instead.');
+  const flood = spriteProblems(Array.from({ length: 100 }, (_, i) => 'line ' + i + ' : ' + 'x'.repeat(200)));
+  assert.ok(flood.length <= 2000, 'within what Discord takes: ' + flood.length);
+  assert.match(flood, /and 9\d more/);
+});
+
+test('whoever typed moves is told when not all of them were made, and why', () => {
+  const level = { kind: 'level', animating: null };
+  assert.equal(typedShortfall({ made: 12, asked: 12, snapshot: level, solved: false }), null, 'nothing to say when all were made');
+  assert.match(typedShortfall({ made: 7, asked: 12, snapshot: level, solved: true }), /first 7 of your 12 moves.*solved/);
+  assert.match(typedShortfall({ made: 1, asked: 3, snapshot: { kind: 'message' }, solved: false }), /first 1 of your 3 moves.*message/);
+  assert.match(typedShortfall({ made: 2, asked: 3, snapshot: { kind: 'level', animating: 'loop' }, solved: false }), /first 2 of your 3 moves.*animation/);
+  assert.match(typedShortfall({ made: 0, asked: 3, snapshot: { kind: 'level', animating: 'loop' }, solved: false }), /^None of those moves.*animation/);
+  assert.match(typedShortfall({ made: 0, asked: 3, snapshot: { kind: 'finished' }, solved: false }), /^None of those moves.*over/);
 });
