@@ -104,6 +104,11 @@ exporting does not post to the channel. The export cache holds up to 32 MB or 12
 links can expire sooner if it fills. `WORKSHOP_PUBLIC_URL` sets the public app address used for
 these links; the default is `https://games.increpare.com/puzzlescriptbot/app/`.
 
+Loading an example or a room save asks for confirmation inside the editor. **Save current game &
+load** waits for the current shared game to be saved to the room's Load list before replacing it
+for everyone. Cancel or Escape leaves it alone. Save/load failures appear in the console; edits
+received while saving prevent replacement, so you can retry with the latest text.
+
 Click a participant's name to scroll to their code cursor without moving your own selection.
 Double-right-click a place in the code editor to signal it to everyone for five seconds. A signal
 outside your view appears as an arrow at the editor's edge; click the arrow to jump to it. A single
@@ -115,8 +120,9 @@ notice on the marker and an explanation in the console.
 `npm run test:workshop-browser` checks the real labs editor in Chromium inside a cross-origin frame
 with downloads blocked, using two participants. It needs a labs checkout with Playwright installed
 and its Chromium browser available. Set `PUZZLESCRIPT_LABS_DIR` to that checkout; by default it uses
-the same `PuzzleScript-labs/.claude/worktrees/discord-workshop` checkout as deployment. The regular
-`npm test` suite does not need browsers or labs.
+the same `PuzzleScript-labs/.claude/worktrees/discord-workshop` checkout as deployment.
+`npm run test:workshop-loading` uses the same setup to check confirmation, backups, failures,
+and edits during loading. The regular `npm test` suite does not need browsers or labs.
 
 ## Skinner of the Day
 

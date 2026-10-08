@@ -58,11 +58,13 @@ function createWorkshopSaves({ dataDir, maxEntries = 20, maxBytes = 5_000_000, n
       if (oldest === -1) throw new WorkshopError('that game is too big to save here');
       next[from].splice(oldest, 1);
     }
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(next));
+    fs.renameSync(tmp, file);
+    // Failed persistence must not look saved in memory: otherwise an identical retry takes the
+    // duplicate shortcut and falsely acknowledges a backup that never reached disk.
     lists = next;
     rev++;
-    const tmp = file + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(lists));
-    fs.renameSync(tmp, file);
     return get();
   }
 
