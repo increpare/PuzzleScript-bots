@@ -384,6 +384,7 @@
     if (saves.status !== 200 || !saves.body) throw new Error('the save list could not be fetched');
     shareSaves(saves.body);
     share(view, first.body);
+    WorkshopLoading.install({ api, say, onSaved: showSaves });
     if (first.body.canShare) offerShare();
     say('Workshop: you are editing the shared document. Everyone here sees your changes as you type, and SAVE saves for the whole room.');
   }

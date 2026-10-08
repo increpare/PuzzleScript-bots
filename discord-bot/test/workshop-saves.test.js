@@ -85,3 +85,26 @@ test('saves are still there after a restart, and a corrupt file is set aside', (
   assert.deepEqual(fresh.get().saves, []);
   assert.equal(fs.readdirSync(path.join(dir, 'workshop')).some((f) => f.startsWith('saves.json.corrupt-')), true);
 });
+
+for (const operation of ['write', 'rename']) {
+  test('a failed ' + operation + ' keeps the previous durable save and a retry writes the new one', (t) => {
+    const dir = tmp();
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const saves = createWorkshopSaves({ dataDir: dir });
+    saves.add('saves', entry('Old', 'previous game'));
+    const before = saves.get();
+    const file = path.join(dir, 'workshop', 'saves.json');
+    const obstruction = operation === 'write' ? file + '.tmp' : file;
+    if (operation === 'rename') fs.renameSync(file, file + '.previous');
+    fs.mkdirSync(obstruction);
+    assert.throws(() => saves.add('saves', entry('New', 'edited game')));
+    assert.deepEqual(saves.get(), before, 'a failed persistence must not advance the room list or revision');
+    fs.rmdirSync(obstruction);
+    if (operation === 'rename') fs.renameSync(file + '.previous', file);
+    assert.deepEqual(createWorkshopSaves({ dataDir: dir }).get().saves, before.saves);
+    const after = saves.add('saves', entry('New', 'edited game'));
+    assert.equal(after.rev, before.rev + 1);
+    assert.equal(after.saves.at(-1).text, 'edited game');
+    assert.deepEqual(createWorkshopSaves({ dataDir: dir }).get().saves, after.saves);
+  });
+}

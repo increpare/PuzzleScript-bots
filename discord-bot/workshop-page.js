@@ -18,7 +18,7 @@ function workshopPage(editorHtml) {
   return editorHtml
     .replace(OWN_STORAGE, '<script src="workshop/storage.js"></script>')
     .replace(OWN_RUNTIME, '<script src="workshop/codemirror6-runtime.js"></script>')
-    .replace('</body>', '<script src="vendor/embedded-app-sdk.js"></script>\n<script src="workshop/controls.js"></script>\n<script src="workshop/navigation.js"></script>\n<script src="workshop/main.js"></script>\n</body>');
+    .replace('</body>', '<script src="vendor/embedded-app-sdk.js"></script>\n<script src="workshop/controls.js"></script>\n<script src="workshop/navigation.js"></script>\n<script src="workshop/loading.js"></script>\n<script src="workshop/main.js"></script>\n</body>');
 }
 
 module.exports = { workshopPage };
