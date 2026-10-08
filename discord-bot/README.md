@@ -32,6 +32,10 @@ Typing `/play` suggests games from the puzzlescript.net gallery; any gist id or 
 
     ./deploy.sh
 
+This also publishes `legal/puzzlescriptbot_privacy.html` and `legal/puzzlescriptbot_terms.html`
+to `~/www/puzzlescriptbot/` on the server, which is where the links registered with Discord
+point. When a change alters what the bot keeps about people, change the privacy page with it.
+
 ## Run locally
 
     npm install && npm test

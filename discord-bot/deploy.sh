@@ -13,6 +13,10 @@ PS="${PUZZLESCRIPT_DIR:-$ROOT/puzzlescript}"
 # editor is copied from a checkout: by default the discord-workshop worktree of the labs checkout
 # beside this repository.
 LABS="${PUZZLESCRIPT_LABS_DIR:-$ROOT/../PuzzleScript-labs/.claude/worktrees/discord-workshop}"
+# The privacy policy and terms registered with Discord are plain files, served by the web server on
+# the same machine as https://games.increpare.com/puzzlescriptbot/. They are published with the
+# bot, so that what they say is never behind what the bot does.
+LEGAL_DEST="${PSBOT_LEGAL_DEST:-www/puzzlescriptbot}"
 # Node is installed in the home directory on the server (there is no root there), which a
 # non-login shell does not have on its PATH.
 REMOTE_PATH='export PATH="$HOME/.local/bin:$PATH"'
@@ -34,6 +38,11 @@ if [ -f "$LABS/src/editor.html" ]; then
     --exclude='*' "$LABS/src/" "$HOST:~/$DEST/labs/src/"
 else
   echo "no labs editor in $LABS/src: the workshop page is not deployed" >&2
+fi
+if ssh "$HOST" "[ -d ~/$LEGAL_DEST ]"; then
+  rsync -az "$HERE/legal/puzzlescriptbot_privacy.html" "$HERE/legal/puzzlescriptbot_terms.html" "$HOST:~/$LEGAL_DEST/"
+else
+  echo "no ~/$LEGAL_DEST on $HOST: the privacy and terms pages were not published" >&2
 fi
 ssh "$HOST" "$REMOTE_PATH && cd ~/$DEST/discord-bot && npm ci --omit=dev --no-audit --no-fund \
   && cp puzzlescript-bot.service ~/.config/systemd/user/ \
