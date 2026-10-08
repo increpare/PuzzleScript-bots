@@ -381,13 +381,19 @@ async function main() {
       if (interaction.isModalSubmit() && interaction.customId === SPRITE_MODAL) {
         const text = interaction.fields.getTextInputValue(SPRITE_FIELD);
         await interaction.deferReply();
+        // What cannot be drawn is told to whoever asked, and not to the channel. The reply was
+        // deferred for all to see, and a first follow-up would take its place, so it is deleted first.
+        const refuse = async (content) => {
+          await interaction.deleteReply();
+          await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
+        };
         try {
           const drawn = await pool.sprites(text);
-          if (!drawn.ok) await interaction.editReply({ content: spriteProblems(drawn.problems) });
+          if (!drawn.ok) await refuse(spriteProblems(drawn.problems));
           else await interaction.editReply({ content: spriteMessage({ names: drawn.names, notes: drawn.notes, text }), files: [new AttachmentBuilder(Buffer.from(drawn.png), { name: 'sprites.png' })] });
         } catch (err) {
           console.error('sprites failed', err);
-          await interaction.editReply({ content: err && err.name === 'PoolClosedError' ? userMessage(err) : 'those sprites could not be drawn' });
+          await refuse(err && err.name === 'PoolClosedError' ? userMessage(err) : 'those sprites could not be drawn');
         }
         return;
       }
