@@ -18,6 +18,9 @@ window.WorkshopNavigation = {
     const buttons = new Map();
     let expiryTimer = null;
     let previousClick = null;
+    let self = { name: 'You', color: '#777777' };
+    const ownRequests = new Map(); // request id -> delivery confirmed, retained beyond marker expiry
+    let latestRequest = null;
 
     const escapeMessage = (text) => { const span = document.createElement('span'); span.textContent = text; return span.innerHTML; };
     const jump = (pos) => view.dispatch({ effects: EditorView.scrollIntoView(Math.max(0, Math.min(pos, view.state.doc.length)), { y: 'center' }) });
@@ -53,6 +56,7 @@ window.WorkshopNavigation = {
               overlay.appendChild(label);
             }
             label.wsPosition = e.pos;
+            label.dataset.pending = String(!!e.pending);
             label.style.backgroundColor = e.color;
             label.style.maxWidth = Math.max(20, bounds.right - bounds.left - 8) + 'px';
             let x;
@@ -64,14 +68,14 @@ window.WorkshopNavigation = {
               const below = c ? c.top >= bounds.bottom : !above;
               const left = c && c.left < bounds.left;
               const direction = above ? '↑' : below ? '↓' : left ? '←' : '→';
-              label.textContent = direction + ' ' + e.name;
+              label.textContent = direction + ' ' + e.name + (e.message || '');
               label.title = 'Jump to ' + e.name + "'s signal";
               x = c ? c.left : (bounds.left + bounds.right) / 2;
               y = above ? bounds.top : below ? bounds.bottom - 22 : c.top;
               if (left) x = bounds.left;
               else if (!above && !below) x = bounds.right - label.offsetWidth;
             } else {
-              label.textContent = e.name;
+              label.textContent = e.name + (e.message || '');
               x = c.left;
               y = c.top - 18 >= bounds.top ? c.top - 18 : c.bottom;
             }
@@ -86,21 +90,21 @@ window.WorkshopNavigation = {
     }
 
     function showSignals(incoming) {
+      for (const s of incoming) if (ownRequests.has(s.clientId)) ownRequests.set(s.clientId, true);
       const previous = new Map(view.state.field(signalsField).map((s) => [s.id, s]));
       const changes = pending();
-      const signals = incoming.map((s) => {
+      const signals = incoming.filter((s) => !ownRequests.has(s.clientId) || s.clientId === latestRequest).map((s) => {
         let pos = s.pos;
         for (const change of changes) pos = change.mapPos(pos, 1);
         // Keep each signal's original local deadline when later polls report it again.
         const until = previous.get(s.id)?.until || Date.now() + Math.max(0, Math.min(5000, s.remainingMs));
         return Object.assign({}, s, { pos: Math.min(pos, view.state.doc.length), until });
       }).filter((s) => s.until > Date.now());
+      // A poll already in flight can omit a newly sent signal. Keep the sender's preview
+      // until this exact request is broadcast, rather than erasing it with that older poll.
+      for (const s of previous.values()) if (s.local && s.until > Date.now() && !signals.some((remote) => remote.id === s.id || remote.clientId === s.clientId)) signals.push(s);
       view.dispatch({ effects: setSignals.of(signals) });
-      clearTimeout(expiryTimer);
-      if (signals.length) expiryTimer = setTimeout(() => {
-        view.dispatch({ effects: setSignals.of(view.state.field(signalsField).filter((s) => s.until > Date.now())) });
-        showSignalsDeadline();
-      }, Math.max(1, Math.min(...signals.map((s) => s.until)) - Date.now() + 1));
+      showSignalsDeadline();
     }
     function showSignalsDeadline() {
       clearTimeout(expiryTimer);
@@ -114,6 +118,7 @@ window.WorkshopNavigation = {
     function showRoster(everyone) {
       const active = new Set();
       for (const p of everyone) {
+        if (p.id === editorId) self = p;
         active.add(p.id);
         let button = buttons.get(p.id);
         if (!button) {
@@ -136,22 +141,67 @@ window.WorkshopNavigation = {
       for (const [id, button] of buttons) if (!active.has(id)) { button.remove(); buttons.delete(id); }
     }
 
-    // Browsers do not consistently issue dblclick for the right button. Track contextmenu events
-    // ourselves, while keeping an ordinary first right-click available for its context menu.
-    view.contentDOM.addEventListener('contextmenu', (event) => {
+    function replaceLocal(clientId, update) {
+      view.dispatch({ effects: setSignals.of(view.state.field(signalsField).map((s) => s.clientId === clientId ? Object.assign({}, s, update) : s)) });
+      showSignalsDeadline();
+    }
+
+    function signal(pos) {
+      const clientId = crypto.randomUUID();
+      ownRequests.set(clientId, false);
+      latestRequest = clientId;
+      if (ownRequests.size > 64) ownRequests.delete(ownRequests.keys().next().value);
+      const syncDeadline = Date.now() + 5000;
+      // A pending request is feedback, not yet a five-second broadcast. Allow time for sync
+      // and a bounded POST; acceptance starts the actual signal's lifetime.
+      const preview = { id: clientId, clientId, name: self.name, color: self.color, pos, until: syncDeadline + 11000, pending: true, local: true, message: ' · sending…' };
+      view.dispatch({ effects: setSignals.of([...view.state.field(signalsField).filter((s) => !ownRequests.has(s.clientId)), preview]) });
+      showSignalsDeadline();
+      function fail(reason) {
+        const current = view.state.field(signalsField).find((s) => s.clientId === clientId);
+        // A delivered broadcast can win the race against a lost POST response.
+        if (clientId !== latestRequest || ownRequests.get(clientId) || (current && !current.local)) return;
+        replaceLocal(clientId, { pending: false, message: ' · not sent', until: Date.now() + 5000 });
+        say(escapeMessage('Workshop: the signal was not sent (' + reason + ').'));
+      }
+      function send() {
+        const current = view.state.field(signalsField).find((s) => s.clientId === clientId);
+        if (!current) return;
+        if (pending().length) {
+          if (Date.now() >= syncDeadline) return fail('your edits are still syncing; try again');
+          setTimeout(send, 50);
+          return;
+        }
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        api('POST', 'workshop/signal', { pos: current.pos, version: version(), clientId }, controller.signal).then((r) => {
+          if (r.status !== 200 || !r.body?.ok) return fail(r.body?.error || 'the bot did not answer');
+          if (ownRequests.has(clientId)) ownRequests.set(clientId, true);
+          // Keep the locally mapped position: edits may have arrived while the POST was in flight.
+          const current = view.state.field(signalsField).find((s) => s.clientId === clientId);
+          const until = current?.local ? Date.now() + Math.max(0, Math.min(5000, r.body.signal?.remainingMs ?? 5000)) : current?.until;
+          replaceLocal(clientId, { id: r.body.signal?.id || clientId, pending: false, message: '', until });
+        }).catch(() => fail(controller.signal.aborted ? 'the request timed out' : 'the bot could not be reached')).finally(() => clearTimeout(timeout));
+      }
+      send();
+    }
+
+    // Native/Discord context menus can swallow the second contextmenu event. Detect
+    // presses instead and reserve unmodified right-clicks; Shift-right-click opens the menu.
+    view.scrollDOM.addEventListener('contextmenu', (event) => {
+      if (!event.shiftKey) event.preventDefault();
+    }, true);
+    view.scrollDOM.addEventListener('pointerdown', (event) => {
+      if (event.button !== 2) return;
+      if (event.shiftKey) { previousClick = null; return; }
       const now = performance.now();
       const second = previousClick && now - previousClick.at <= 400 && Math.hypot(event.clientX - previousClick.x, event.clientY - previousClick.y) <= 6;
       previousClick = { at: now, x: event.clientX, y: event.clientY };
       if (!second) return;
       previousClick = null;
       event.preventDefault();
-      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-      if (pos === null) return;
-      if (pending().length) return say('Workshop: wait for your edits to sync, then signal again.');
-      api('POST', 'workshop/signal', { pos, version: version() }).then((r) => {
-        if (r.status !== 200 || !r.body || !r.body.ok) say(escapeMessage('Workshop: the signal was not sent (' + ((r.body && r.body.error) || 'the bot did not answer') + ').'));
-      }).catch(() => say('Workshop: the signal was not sent (the bot could not be reached).'));
-    });
+      signal(view.posAtCoords({ x: event.clientX, y: event.clientY }, false));
+    }, true);
     view.dispatch({ effects: StateEffect.appendConfig.of([
       signalsField,
       EditorView.updateListener.of(measure),

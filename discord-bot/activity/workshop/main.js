@@ -22,10 +22,10 @@
 
   // Paths are relative: inside Discord the page is served through the Activity's proxy, and
   // outside it from wherever the bot's server is mounted.
-  async function api(method, name, body) {
+  async function api(method, name, body, signal) {
     const headers = { authorization: 'Bearer ' + session };
     if (body) headers['content-type'] = 'application/json';
-    const r = await fetch('api/' + name, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    const r = await fetch('api/' + name, { method, headers, body: body ? JSON.stringify(body) : undefined, signal });
     return { status: r.status, body: await r.json().catch(() => null) };
   }
 

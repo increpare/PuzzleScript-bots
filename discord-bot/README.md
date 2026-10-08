@@ -107,8 +107,10 @@ these links; the default is `https://games.increpare.com/puzzlescriptbot/app/`.
 Click a participant's name to scroll to their code cursor without moving your own selection.
 Double-right-click a place in the code editor to signal it to everyone for five seconds. A signal
 outside your view appears as an arrow at the editor's edge; click the arrow to jump to it. A single
-right-click keeps its usual context menu. Signals follow edits to the document. If your latest
-edits have not synced, wait for them to sync and signal again.
+right-click is reserved for this gesture; Shift-right-click opens the usual context menu. You see
+your own marker immediately, with a sending indicator until it is accepted. Signals follow edits
+to the document and wait briefly for your outstanding edits to sync. Failed sends show a visible
+notice on the marker and an explanation in the console.
 
 `npm run test:workshop-browser` checks the real labs editor in Chromium inside a cross-origin frame
 with downloads blocked, using two participants. It needs a labs checkout with Playwright installed

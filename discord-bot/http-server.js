@@ -153,9 +153,9 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
         if (body.version !== state.version) return json(res, 409, { error: 'the document has changed' });
         if (!Number.isInteger(body.pos) || body.pos < 0 || body.pos > state.doc.length) return json(res, 400, { error: 'bad signal position' });
         try {
-          workshopSignals.add({ uid, name: who.name || 'someone', pos: body.pos });
+          const signal = workshopSignals.add({ uid, name: who.name || 'someone', pos: body.pos, clientId: body.clientId });
           workshop.nudge();
-          return json(res, 200, { ok: true });
+          return json(res, 200, { ok: true, signal });
         } catch (e) {
           if (e.name !== 'WorkshopError') throw e;
           return json(res, e.status || 400, { error: e.message });

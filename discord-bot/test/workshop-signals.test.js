@@ -4,6 +4,16 @@ const assert = require('node:assert');
 const { ChangeSet } = require('../vendor/codemirror-state.cjs');
 const { createSignals } = require('../workshop-signals');
 
+test('acknowledgements and broadcasts correlate a local preview without exposing user ids', () => {
+  const signals = createSignals({ now: () => 0 });
+  const clientId = '12345678-1234-1234-1234-123456789abc';
+  const ack = signals.add({ uid: 'u1', name: 'Ada', pos: 3, clientId });
+  assert.deepEqual(ack, signals.list()[0]);
+  assert.equal(ack.clientId, clientId);
+  assert.equal('uid' in ack, false);
+  assert.throws(() => signals.add({ uid: 'u2', name: 'Bob', pos: 0, clientId: 'x'.repeat(1000) }), { name: 'WorkshopError' });
+});
+
 test('signals expose a bounded sender name, colour, position and remaining lifetime', () => {
   assert.equal(typeof createSignals, 'function');
   let time = 0;

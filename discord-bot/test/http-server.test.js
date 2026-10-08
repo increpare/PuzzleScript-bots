@@ -462,10 +462,13 @@ test('workshop signals authenticate, validate the current position and ignore sp
   for (const version of [2, 4, null, '3']) assert.equal((await jsonPost(url, session, { pos: 2, version })).status, 409);
   for (const pos of [-1, 1.5, 8, null, '0']) assert.equal((await jsonPost(url, session, { pos, version: 3 })).status, 400);
   assert.equal(nudges, 0);
-  assert.equal((await jsonPost(url, session, { pos: 7, version: 3, uid: '43', name: 'Mallory', color: '#ffffff' })).status, 200);
+  const clientId = '12345678-1234-1234-1234-123456789abc';
+  const response = await jsonPost(url, session, { pos: 7, version: 3, uid: '43', name: 'Mallory', color: '#ffffff', clientId });
+  assert.equal(response.status, 200);
   assert.equal(nudges, 1);
   const [signal] = workshopSignals.list();
-  assert.deepEqual({ ...signal, id: null }, { id: null, name: 'Ada', color: '#123456', pos: 7, remainingMs: 5000 });
+  assert.deepEqual(await response.json(), { ok: true, signal });
+  assert.deepEqual({ ...signal, id: null }, { id: null, name: 'Ada', color: '#123456', pos: 7, remainingMs: 5000, clientId });
   time = 499;
   assert.equal((await jsonPost(url, session, { pos: 1, version: 3 })).status, 429);
   assert.equal(nudges, 1);

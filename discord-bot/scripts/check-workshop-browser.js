@@ -123,21 +123,24 @@ test('the workshop editor in a Discord-like frame', async (t) => {
     await delay(500);
     await cursor(a, 0);
     await a.locator('#workshopRoster button').filter({ hasText: 'Bob' }).click({ timeout: 2000 });
+    await a.waitForFunction((code) => eval(code).scrollDOM.scrollTop > 1000, viewCode, { timeout: 2000 });
     const state = await a.evaluate((code) => { const v = eval(code); return { head: v.state.selection.main.head, scroll: v.scrollDOM.scrollTop }; }, viewCode);
     assert.equal(state.head, 0);
     assert.ok(state.scroll > 1000, JSON.stringify(state));
   });
 
-  await t.test('a single right-click does not signal or suppress the context menu', async () => {
+  await t.test('a single right-click does not signal; Shift-right-click retains the context menu', async () => {
     await cursor(a, 0);
     const result = await a.evaluate(() => {
       const line = document.querySelector('.cm-line');
       const box = line.getBoundingClientRect();
       const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: box.left + 20, clientY: box.top + 8 });
       line.dispatchEvent(event);
-      return event.defaultPrevented;
+      const shifted = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, shiftKey: true });
+      line.dispatchEvent(shifted);
+      return [event.defaultPrevented, shifted.defaultPrevented];
     });
-    assert.equal(result, false);
+    assert.deepEqual(result, [true, false]);
     assert.equal(await a.locator('.ws-signal').count(), 0);
     await delay(450);
   });
@@ -195,6 +198,126 @@ test('the workshop editor in a Discord-like frame', async (t) => {
       for (const route of held) await route.continue();
     }
     assert.ok(result.expectedVisible, JSON.stringify(result));
+  });
+
+  await t.test('right-button presses signal even when contextmenu events are intercepted', async () => {
+    await cursor(a, 0); await cursor(b, source.length - 1); await delay(650);
+    const sent = [];
+    const onRequest = (request) => { if (request.url().endsWith('/api/workshop/signal')) sent.push(request); };
+    peers[0].page.on('request', onRequest);
+    try {
+      await a.evaluate(() => {
+        const line = document.querySelector('.cm-line');
+        const r = line.getBoundingClientRect();
+        // Discord/desktop context menus need not dispatch a DOM contextmenu event at all.
+        for (let i = 0; i < 2; i++) {
+          line.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 2, clientX: r.left + 32, clientY: r.top + 8 }));
+          line.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 2, clientX: r.left + 32, clientY: r.top + 8 }));
+        }
+      });
+      await delay(250);
+      assert.equal(sent.length, 1, 'one signal should be sent from two right-button presses');
+      await b.waitForFunction(() => document.querySelector('.ws-signal-arrow'), null, { timeout: 1500 });
+    } finally { peers[0].page.off('request', onRequest); }
+  });
+
+  await t.test('the sender sees an immediate signal while its request is still pending', async () => {
+    await cursor(a, 0); await delay(650);
+    let held;
+    let arrived;
+    const started = new Promise((resolve) => { arrived = resolve; });
+    await peers[0].context.route('**/api/workshop/signal', (route) => { held = route; arrived(); });
+    let visible;
+    try {
+      const line = a.locator('.cm-line').first();
+      await line.click({ button: 'right', position: { x: 64, y: 8 } });
+      await line.click({ button: 'right', position: { x: 64, y: 8 } });
+      await Promise.race([started, delay(2000).then(() => { throw new Error('signal request did not start'); })]);
+      await delay(50);
+      visible = await a.locator('.ws-signal').evaluateAll((nodes) => nodes.some((n) => n.wsPosition < 100 && n.dataset.pending === 'true'));
+      // An unrelated peer move causes a poll while this request is still held.
+      await cursor(b, 10); await delay(500);
+      assert.equal(await a.locator('.ws-signal[data-pending="true"]').count(), 1);
+    } finally {
+      await peers[0].context.unroute('**/api/workshop/signal');
+      if (held) await held.continue();
+    }
+    assert.equal(visible, true, 'sender feedback must not wait for the server or the next poll');
+    await a.waitForFunction(() => document.querySelector('.ws-signal[data-pending="false"]')?.textContent === 'Ada', null, { timeout: 2500 });
+    assert.equal(await a.locator('.ws-signal').count(), 1, 'broadcast and acknowledgement reconcile with the local preview');
+  });
+
+  await t.test('a rejected signal gives visible feedback to the sender', async () => {
+    await cursor(a, 0); await delay(650);
+    await peers[0].context.route('**/api/workshop/signal', (route) => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'the document has changed' }) }));
+    try {
+      const line = a.locator('.cm-line').first();
+      await line.click({ button: 'right', position: { x: 80, y: 8 } });
+      await line.click({ button: 'right', position: { x: 80, y: 8 } });
+      await a.waitForFunction(() => [...document.querySelectorAll('.ws-signal')].some((n) => n.textContent.includes('not sent')), null, { timeout: 2000 });
+      assert.match(await a.locator('#consoletextarea').textContent(), /signal was not sent.*document has changed/);
+    } finally { await peers[0].context.unroute('**/api/workshop/signal'); }
+  });
+
+  await t.test('signaling after typing waits for sync and gives both users a full broadcast lifetime', async () => {
+    await cursor(a, 0); await cursor(b, 0); await delay(650);
+    const held = [];
+    await peers[0].context.route('**/api/workshop/push', (route) => { held.push(route); });
+    const sent = [];
+    const onRequest = (request) => { if (request.url().endsWith('/api/workshop/signal')) sent.push(request); };
+    peers[0].page.on('request', onRequest);
+    try {
+      await a.evaluate((code) => eval(code).dispatch({ changes: { from: 0, insert: '(signal sync test)\n' } }), viewCode);
+      const line = a.locator('.cm-line').first();
+      await line.click({ button: 'right', position: { x: 48, y: 8 } });
+      await line.click({ button: 'right', position: { x: 48, y: 8 } });
+      await a.waitForFunction(() => document.querySelector('.ws-signal[data-pending="true"]'), null, { timeout: 1000 });
+      await delay(1500);
+      assert.equal(sent.length, 0, 'signal must wait for the edited document version');
+    } finally {
+      await peers[0].context.unroute('**/api/workshop/push');
+      for (const route of held) await route.continue();
+      peers[0].page.off('request', onRequest);
+    }
+    await a.waitForFunction(() => document.querySelector('.ws-signal[data-pending="false"]')?.textContent === 'Ada', null, { timeout: 2500 });
+    await b.waitForFunction(() => document.querySelector('.ws-signal')?.textContent === 'Ada', null, { timeout: 2500 });
+    await delay(4100);
+    assert.equal(await a.locator('.ws-signal').count(), 1, 'sender gets five seconds after acceptance, even after waiting for sync');
+    assert.equal(await b.locator('.ws-signal').count(), 1);
+  });
+
+  await t.test('a late rejection still leaves a visible failure marker', async () => {
+    await cursor(a, 0); await delay(650);
+    let held;
+    await peers[0].context.route('**/api/workshop/signal', (route) => { held = route; });
+    try {
+      const line = a.locator('.cm-line').first();
+      await line.click({ button: 'right', position: { x: 80, y: 8 } });
+      await line.click({ button: 'right', position: { x: 80, y: 8 } });
+      await delay(5500);
+      assert.ok(held);
+      await held.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'the document has changed' }) });
+      await a.waitForFunction(() => [...document.querySelectorAll('.ws-signal')].some((n) => n.textContent.includes('not sent')), null, { timeout: 1000 });
+    } finally { await peers[0].context.unroute('**/api/workshop/signal'); }
+  });
+
+  await t.test('a delivered broadcast stays confirmed after the marker expires, even if its POST response is lost', async () => {
+    await cursor(a, 0); await delay(650);
+    let held;
+    let response;
+    await peers[0].context.route('**/api/workshop/signal', async (route) => { held = route; response = await route.fetch(); });
+    try {
+      const line = a.locator('.cm-line').first();
+      await line.click({ button: 'right', position: { x: 80, y: 8 } });
+      await line.click({ button: 'right', position: { x: 80, y: 8 } });
+      await a.waitForFunction(() => document.querySelector('.ws-signal[data-pending="false"]')?.textContent === 'Ada', null, { timeout: 2000 });
+      await delay(10500);
+      assert.equal(await a.locator('.ws-signal').count(), 0);
+      assert.doesNotMatch(await a.locator('#consoletextarea').textContent(), /request timed out/);
+    } finally {
+      await peers[0].context.unroute('**/api/workshop/signal');
+      if (held && response) await held.fulfill({ response }).catch(() => {});
+    }
   });
 
   await t.test('no uncaught browser errors', () => assert.deepEqual(errors, []));
