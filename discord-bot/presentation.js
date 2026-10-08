@@ -59,18 +59,19 @@ const SPRITE_MODAL = 'ps:sprite';
 const SPRITE_FIELD = 'objects';
 function spriteModal() {
   const field = new TextInputBuilder().setCustomId(SPRITE_FIELD).setStyle(TextInputStyle.Paragraph)
-    .setPlaceholder('Player\nblack orange white blue\n.000.\n.111.\n22222\n.333.\n.3.3.').setMinLength(1).setMaxLength(4000).setRequired(true);
+    .setPlaceholder('black orange white blue\n.000.\n.111.\n22222\n.333.\n.3.3.').setMinLength(1).setMaxLength(4000).setRequired(true);
   return new ModalBuilder().setCustomId(SPRITE_MODAL).setTitle('Draw sprites')
-    .addLabelComponents(new LabelBuilder().setLabel('Objects').setDescription('As in an OBJECTS section: a name, its colours, then five rows of five').setTextInputComponent(field));
+    .addLabelComponents(new LabelBuilder().setLabel('Objects').setDescription('As in an OBJECTS section: colours, then five rows of five. A name above them is optional').setTextInputComponent(field));
 }
 
 // What goes with the picture: the text it was drawn from, for others to copy, when that sits in a
-// code block and leaves room; otherwise the names of what was drawn. Then the engine's warnings.
+// code block and leaves room; otherwise the names of what was drawn, of those that have one. Then
+// the engine's warnings.
 function spriteMessage({ names, notes, text }) {
   const body = String(text).replace(/\r\n?/g, '\n').replace(/^\n+|\s+$/g, '');
   const said = (notes || []).slice(0, 3).map((n) => '\n' + String(n).slice(0, 200)).join('');
   if (body.length <= 1200 && !body.includes('```')) return '```\n' + body + '\n```' + said;
-  return escapeMarkdown(names.join(', ')).slice(0, 1200) + said;
+  return escapeMarkdown(names.filter((n) => n !== null).join(', ')).slice(0, 1200) + said;
 }
 
 function spriteProblems(problems) {

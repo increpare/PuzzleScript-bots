@@ -168,7 +168,7 @@ The sound is made by the engine's own generator and put through the filter the e
 
 ## Sprites
 
-`/sprite` opens a box for object definitions as an OBJECTS section holds them (a name, its colours, then five rows of five), and posts them drawn large on a transparent background, with their text for others to copy. A whole OBJECTS section can be pasted, heading and all; up to 40 objects are drawn.
+`/sprite` opens a box for object definitions as an OBJECTS section holds them (colours, then five rows of five; a name above them is optional), and posts them drawn large on a transparent background, with their text for others to copy. A whole OBJECTS section can be pasted, heading and all; up to 40 objects are drawn.
 
 They are read by the engine's own parser, so what it would refuse in a game is refused here in the same words. Colours are those of the default palette.
 

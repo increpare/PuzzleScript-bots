@@ -240,6 +240,12 @@ test('the engine\'s warnings go under the picture', () => {
   assert.equal(said, '```\nRule\nred\n```\nline 1 : You named an object "RULE", but this is a keyword. Don\'t do that!');
 });
 
+test('sprites without a name are left out of the names, and may leave nothing to say', () => {
+  const long = 'x'.repeat(3000);
+  assert.equal(spriteMessage({ names: [null, 'Crate', null], notes: [], text: long }), 'Crate');
+  assert.equal(spriteMessage({ names: [null], notes: [], text: long }), '');
+});
+
 test('sprites that cannot be drawn get the reasons, however many there are', () => {
   assert.equal(spriteProblems(['line 2 : Was looking for color for object THING, got "blurple" instead.']), 'That cannot be drawn:\nline 2 : Was looking for color for object THING, got "blurple" instead.');
   const flood = spriteProblems(Array.from({ length: 100 }, (_, i) => 'line ' + i + ' : ' + 'x'.repeat(200)));

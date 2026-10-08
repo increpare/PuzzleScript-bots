@@ -34,6 +34,31 @@ test('a whole OBJECTS section can be pasted, with its heading, its rules of equa
   assert.deepEqual(r.sprites.map((s) => s.name), ['Player']);
 });
 
+test('an object needs no name: its colours and its pixels are enough', () => {
+  const r = readSprites(PLAYER.split('\n').slice(1).join('\n'));
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.sprites, [{
+    name: null,
+    colors: ['#000000', '#eb8931', '#ffffff', '#be2633'],
+    dat: [[-1, 0, 0, 0, -1], [-1, 1, 1, 1, -1], [2, 2, 2, 2, 2], [-1, 3, 3, 3, -1], [-1, 3, -1, 3, -1]],
+  }]);
+  assert.deepEqual(readSprites('red').sprites, [{ name: null, colors: ['#be2633'], dat: [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]] }]);
+});
+
+test('objects with a name and without one can be mixed, and one named after a colour keeps its name', () => {
+  const r = readSprites(['green', '', 'Crate', 'orange', '', '#f80 Transparent', '00000', '0...0', '0.1.0', '0...0', '00000', 'blue', '', 'Red', 'red', '', 'unnamed', 'white'].join('\n'));
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.deepEqual(r.sprites.map((s) => s.name), [null, 'Crate', null, null, 'Red', 'unnamed']);
+  assert.deepEqual(r.sprites.map((s) => s.colors[0]), ['#44891a', '#eb8931', '#f80', '#1d57f7', '#be2633', '#ffffff']);
+});
+
+test('a mistake in an object without a name is reported on the line it is on', () => {
+  const problem = (text) => { const r = readSprites(text); assert.equal(r.ok, false); return r.problems.join('\n'); };
+  assert.match(problem('red\n01000\n00000\n00000\n00000\n00000'), /line 2 : Trying to access color number 1/);
+  assert.match(problem('red blurple\n00000\n00000\n00000\n00000\n00000'), /line 1 : Was looking for color for object UNNAMED, got "blurple" instead\./);
+  assert.match(problem('Crate\norange\n\nred\n000\n000'), /line 4 : Sprite graphics must be 5 wide and 5 high exactly\./);
+});
+
 test('what the engine would not accept is refused in the engine\'s words, with the line it is on', () => {
   const problem = (text) => { const r = readSprites(text); assert.equal(r.ok, false); return r.problems.join('\n'); };
   assert.match(problem('Thing\nblurple'), /line 2 : Was looking for color for object THING, got "blurple" instead\./);

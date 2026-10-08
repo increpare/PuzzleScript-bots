@@ -18,6 +18,10 @@ const isTransparent = (c) => String(c).trim().toLowerCase() === 'transparent';
 // then does to each object what the compiler does to it for a whole game (generateExtraMembers):
 // colour names become the default palette's colours, and the rows of pixels become numbers.
 // Every complaint is the engine's own, made with its own logError and logWarning.
+// An object need not have a name. Where the parser is due one and the line begins with a colour
+// (and the line after it does not, or the colour would be the name of an object: Red, then red),
+// it is given a name nothing in the text has, on a line of its own that is not counted. Such an
+// object comes back with no name; the one it was given shows only in what the engine says of it.
 let reader = null;
 function getReader() {
   if (reader === null) {
@@ -30,18 +34,36 @@ function getReader() {
         const processor = new codeMirrorFn();
         const state = processor.startState();
         state.section = 'objects';
-        for (const line of lines) {
+        const feed = (line) => {
           const stream = new CodeMirror.StringStream(line, 4);
           do { processor.token(stream, state); } while (stream.eol() === false);
-        }
+        };
+        const startsWithColour = (line) => { const word = /\\S+/.exec(line || ''); return word !== null && isColor(word[0].toLowerCase()); };
+        const taken = new Set(lines.join(' ').toLowerCase().split(/\\s+/));
+        const nameless = new Set();
+        let spare = 0;
+        lines.forEach((line, i) => {
+          // the parser reads a name at the start of an object, and after colours that no pixels follow
+          const nameDue = state.commentLevel === 0 && (state.objects_section === 0 || (state.objects_section === 2 && state.objects_spritematrix.length === 0));
+          if (nameDue && startsWithColour(line) && !startsWithColour(lines[i + 1])) {
+            let name;
+            do { spare++; name = spare === 1 ? 'unnamed' : 'unnamed' + spare; } while (taken.has(name));
+            nameless.add(name);
+            feed(name);
+            state.lineNumber--;
+          }
+          feed(line);
+        });
         // an object the parser has complained of would only be complained of again here, in other words
         for (const n of errorCount > 0 ? [] : Object.keys(state.objects)) {
           const o = state.objects[n];
-          if (o.colors.length > 10) logError("a sprite cannot have more than 10 colors.  Why you would want more than 10 is beyond me.", o.lineNumber + 1);
+          // the line its colours are on: the one after its name, or its first when it has no name
+          const coloursLine = nameless.has(n) ? o.lineNumber : o.lineNumber + 1;
+          if (o.colors.length > 10) logError("a sprite cannot have more than 10 colors.  Why you would want more than 10 is beyond me.", coloursLine);
           const colors = [];
           for (const c of o.colors) {
             if (isColor(c)) colors.push(colorToHex(colorPalettes.arnecolors, c));
-            else logError('Invalid color specified for object "' + n + '", namely "' + c + '".', o.lineNumber + 1);
+            else logError('Invalid color specified for object "' + n + '", namely "' + c + '".', coloursLine);
           }
           if (o.colors.length === 0) logError('color not specified for object "' + n + '".', o.lineNumber);
           let dat = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]];
@@ -49,7 +71,7 @@ function getReader() {
             if (spriteMatrixIs5x5(o.spritematrix)) dat = generateSpriteMatrix(o.spritematrix);
             else { misshapen = true; logWarning("Sprite graphics must be 5 wide and 5 high exactly.", o.lineNumber); }
           }
-          sprites.push({ name: state.original_case_names[n] || n, colors, dat });
+          sprites.push({ name: nameless.has(n) ? null : state.original_case_names[n] || n, colors, dat });
         }
       } catch (e) {
         // the engine gives up after too many errors: what it had said by then is what is reported
@@ -63,7 +85,8 @@ function getReader() {
 
 const stripTags = (s) => String(s).replace(/<\/?[a-zA-Z][^>]*>/g, '').replace(/\s+/g, ' ').trim();
 
-// text: object definitions as an OBJECTS section holds them. A whole section may be pasted, or a
+// text: object definitions as an OBJECTS section holds them, with or without their names (a name
+// is null where there was none). A whole section may be pasted, or a
 // whole game: anything before an OBJECTS heading and from the next heading on is left out, and so
 // are the rules of equals signs. Left-out lines are read as empty ones, so that the engine's line
 // numbers are those of what was pasted.
