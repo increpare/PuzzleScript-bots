@@ -5,7 +5,7 @@ const { createPool } = require('./pool');
 const { createGistStore, parseGistId } = require('./gists');
 const { createRegistry } = require('./games');
 const { renderSnapshot } = require('./renderer');
-const { loadGallery, suggest } = require('./gallery');
+const { loadGames, suggest } = require('./gallery');
 const { createScores } = require('./scores');
 const { createSourceStore } = require('./sources');
 const {
@@ -68,7 +68,7 @@ async function main() {
   console.log('loaded', registry.loadAll(), 'games', registry.storage());
 
   const scores = createScores({ dataDir: cfg.dataDir });
-  const gallery = loadGallery();
+  const games = loadGames();
   const client = new Client({ intents: [GatewayIntentBits.Guilds], allowedMentions: { parse: [] } });
 
   // A thread counts as the channel it belongs to.
@@ -276,7 +276,7 @@ async function main() {
     if (interaction.isAutocomplete()) {
       try {
         const focused = interaction.options.getFocused();
-        if (interaction.commandName === 'play') await interaction.respond(suggest(gallery, focused));
+        if (interaction.commandName === 'play') await interaction.respond(suggest(games, focused));
         else if (interaction.commandName === 'sfx') await interaction.respond(suggestSounds(focused));
       } catch (err) {
         console.error('autocomplete failed', err);

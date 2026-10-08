@@ -26,7 +26,9 @@ Node is installed in `locus`'s home directory (`~/.local/bin/node`), because
 that account has no root. In a shell there, put it on the path first:
 `export PATH="$HOME/.local/bin:$PATH"`.
 
-Typing `/play` suggests games from the puzzlescript.net gallery; any gist id or play link also works.
+Typing `/play` suggests games: those of the puzzlescript.net gallery first, marked ⭐, then the community's
+games listed in `community-games.json` (made from `community-gists.txt` by `scripts/build-community-games.js`).
+Any gist id or play link also works.
 
 ## Deploy
 
