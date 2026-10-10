@@ -62,6 +62,14 @@ test('footer names the last person who moved', () => {
   assert.equal(e.footer.text, 'Level 2 of 3 (Last move: increpare)');
 });
 
+test('a finished game names who finished it', () => {
+  const snapshot = { kind: 'finished', levelIndex: 2, levelCount: 3 };
+  const won = buildEmbed({ record: { meta: meta({}), status: 'finished', lastMover: 'increpare' }, snapshot, attachmentName: null }).toJSON();
+  assert.equal(won.footer.text, 'Finished by increpare');
+  const anon = buildEmbed({ record: { meta: meta({}), status: 'finished' }, snapshot, attachmentName: null }).toJSON();
+  assert.equal(anon.footer.text, 'finished');
+});
+
 test('footer uses level numbers that leave out message screens', () => {
   const record = { meta: meta({}), status: 'playing' };
   const e = buildEmbed({ record, snapshot: { kind: 'level', levelIndex: 28, levelCount: 35, levelNumber: 15, realLevelCount: 18 }, attachmentName: 'f.png' }).toJSON();

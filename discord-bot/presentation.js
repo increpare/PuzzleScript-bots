@@ -104,7 +104,10 @@ function solvedByText(solvedBy) {
 // sent: the sent level the game is running on (a record from the level store), if it is one
 function footerText(record, snapshot, sent) {
   if (record.status === 'dead') return 'stopped: ' + (record.deadReason || 'error');
-  if (snapshot.kind === 'finished' || record.status === 'finished') return sent ? solvedByText(sent.solvedBy) : 'finished';
+  if (snapshot.kind === 'finished' || record.status === 'finished') {
+    if (sent) return solvedByText(sent.solvedBy);
+    return record.lastMover ? 'Finished by ' + record.lastMover : 'finished';
+  }
   // levelNumber/realLevelCount leave out message screens; older snapshots only have the raw entry index
   const n = snapshot.levelNumber !== undefined ? snapshot.levelNumber : (snapshot.levelIndex | 0) + 1;
   const m = snapshot.realLevelCount !== undefined ? snapshot.realLevelCount : snapshot.levelCount;
