@@ -128,6 +128,53 @@ the same `PuzzleScript-labs/.claude/worktrees/discord-workshop` checkout as depl
 `npm run test:workshop-loading` uses the same setup to check confirmation, backups, failures,
 and edits during loading. The regular `npm test` suite does not need browsers or labs.
 
+## Gallery
+
+`/admin_gallery game:<gist>` adds a game to the puzzlescript.net gallery. It is for the bot's
+owner: Discord shows it to the server's administrators only (it cannot be hidden from them), and
+the bot answers nobody but `OWNER_USER_ID`. The design is in
+`docs/superpowers/specs/2026-10-08-admin-gallery-design.md`.
+
+The answer is a link, good for six hours, to a page of the bot's at `gallery/` under the public
+app address. The page runs the game in the engine of the PuzzleScript checkout, exactly as
+`play.html` does, so realtime games work there. Pick a level and play it; **Make GIF** replays
+what was pressed since the level was started into a looping GIF of the level, as the editor's
+recorder does. Title, author and homepage are filled in from the game and can be changed.
+**Submit** then:
+
+1. makes one commit to `increpare/PuzzleScript` master, adding `src/Gallery/gifs/<gist id>.gif` and
+   the game's record at the end of `src/games_dat.js`;
+2. writes the same GIF and record into the live site's directory, so the gallery shows the game at
+   once;
+3. adds the record to the bot's own copy of the list, so `/play` suggests the game at once.
+
+If the commit fails nothing else is done. If a later step fails the page says which, and the
+commit stands.
+
+Settings, all of which are needed (and `DISCORD_CLIENT_SECRET`, for the http server):
+
+- `OWNER_USER_ID`: the owner's Discord user id.
+- `GALLERY_TOKEN`: a fine-grained GitHub token for the PuzzleScript repository alone, with
+  Contents read and write.
+- `GALLERY_SITE_DIR`: the directory puzzlescript.net is served from on this machine, as an
+  absolute path. It has `games_dat.js` and `Gallery/gifs/` in it.
+
+Run `node register-commands.js` where these are set (the server): run without them, it registers
+the other commands and takes `/admin_gallery` away.
+
+Things to know:
+
+- Pull PuzzleScript before the next `upload`: an upload from a checkout without the bot's commit
+  puts the old `games_dat.js` back on the live site.
+- `deploy.sh` copies `games_dat.js` from the submodule. Until the submodule is moved on to the
+  bot's commit, a deploy drops the game from what `/play` suggests (not from the site).
+- The GIF on the live site is as the page made it until the next `upload`, which optimises the
+  gallery's GIFs.
+- A GIF may be 2 MB at most. There is no removing or changing an entry from Discord.
+
+`npm run test:gallery-browser` checks the page in Chromium with the real engine and a stand-in for
+the submitter. Like the workshop's browser check, it needs a labs checkout with Playwright.
+
 ## Skinner of the Day
 
 Each day the bot posts one of David W. Skinner's Sokoban puzzles in the channel named by

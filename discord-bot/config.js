@@ -53,6 +53,14 @@ function loadConfig(envPath = path.join(__dirname, '.env')) {
     // each day from this hour on. Its game is a gist, so it needs the gist token as well.
     skinnerChannelId: env.SKINNER_CHANNEL_ID || null,
     skinnerHourUtc,
+    // The gallery: /admin_gallery hands the owner (and nobody else) a page from which a game is
+    // added to the PuzzleScript gallery. The token is a GitHub one that may write to the
+    // PuzzleScript repository, and the site directory is where puzzlescript.net is served from,
+    // on this machine. The page is served by the http server, so it needs the client secret too.
+    ownerUserId: env.OWNER_USER_ID || null,
+    galleryToken: env.GALLERY_TOKEN || null,
+    gallerySiteDir: env.GALLERY_SITE_DIR || null,
+    gallery: Boolean(env.OWNER_USER_ID && env.GALLERY_TOKEN && env.GALLERY_SITE_DIR && env.DISCORD_CLIENT_SECRET),
   };
 }
 

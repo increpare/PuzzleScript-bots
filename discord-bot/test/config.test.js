@@ -95,3 +95,27 @@ test('the Skinner of the Day: off without a channel, at nine in the morning (UTC
     assert.throws(() => loadConfig(file), /SKINNER_HOUR_UTC/);
   }
 });
+
+test('the gallery is on only when all of its settings and the http server are there', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-cfg-'));
+  const file = path.join(dir, '.env');
+  const base = 'DISCORD_TOKEN=abc\nDISCORD_APP_ID=1\nDISCORD_GUILD_ID=2\nGITHUB_TOKEN=ghp\n';
+  const settings = { OWNER_USER_ID: '77', GALLERY_TOKEN: 'github_pat_x', GALLERY_SITE_DIR: '/home/locus/sites/puzzlescript', DISCORD_CLIENT_SECRET: 'shh' };
+  const write = (keys) => fs.writeFileSync(file, base + keys.map((k) => k + '=' + settings[k] + '\n').join(''));
+  write([]);
+  let cfg = loadConfig(file);
+  assert.equal(cfg.ownerUserId, null);
+  assert.equal(cfg.galleryToken, null);
+  assert.equal(cfg.gallerySiteDir, null);
+  assert.equal(cfg.gallery, false);
+  write(Object.keys(settings));
+  cfg = loadConfig(file);
+  assert.equal(cfg.ownerUserId, '77');
+  assert.equal(cfg.galleryToken, 'github_pat_x');
+  assert.equal(cfg.gallerySiteDir, '/home/locus/sites/puzzlescript');
+  assert.equal(cfg.gallery, true);
+  for (const missing of Object.keys(settings)) {
+    write(Object.keys(settings).filter((k) => k !== missing));
+    assert.equal(loadConfig(file).gallery, false, 'without ' + missing);
+  }
+});

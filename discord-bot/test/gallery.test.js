@@ -71,3 +71,19 @@ test('suggest keeps to the limit', () => {
   assert.strictEqual(s.length, 25);
   assert.deepStrictEqual(s.slice(0, 10).map((c) => c.value), games.slice(30).map((g) => g.gistId));
 });
+
+test('forgetGallery has the list read afresh', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { forgetGallery } = require('../gallery');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-gal-')), 'games_dat.js');
+  const entry = (id) => '{ "url": "https://www.puzzlescript.net/play.html?p=' + id + '", "title": "T", "author": "A" },';
+  fs.writeFileSync(file, 'let games_gallery = [' + entry('aa11') + ']');
+  assert.strictEqual(loadGallery(file).length, 1);
+  fs.writeFileSync(file, 'let games_gallery = [' + entry('aa11') + entry('bb22') + ']');
+  assert.strictEqual(loadGallery(file).length, 1);
+  forgetGallery();
+  assert.strictEqual(loadGallery(file).length, 2);
+  forgetGallery();
+});

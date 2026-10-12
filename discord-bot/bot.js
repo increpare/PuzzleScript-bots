@@ -5,7 +5,11 @@ const { createPool } = require('./pool');
 const { createGistStore, parseGistId } = require('./gists');
 const { createRegistry } = require('./games');
 const { renderSnapshot } = require('./renderer');
-const { loadGames, suggest } = require('./gallery');
+const { loadGames, forgetGallery, suggest } = require('./gallery');
+const { galleryLink, GALLERY_LINK_MS } = require('./gallery-entry');
+const { createGalleryRepo } = require('./gallery-github');
+const { createGallerySubmitter } = require('./gallery-submit');
+const { SRC_DIR } = require('./engine-src');
 const { createScores } = require('./scores');
 const { createSourceStore } = require('./sources');
 const {
@@ -68,7 +72,7 @@ async function main() {
   console.log('loaded', registry.loadAll(), 'games', registry.storage());
 
   const scores = createScores({ dataDir: cfg.dataDir });
-  const games = loadGames();
+  let games = loadGames();
   const client = new Client({ intents: [GatewayIntentBits.Guilds], allowedMentions: { parse: [] } });
 
   // A thread counts as the channel it belongs to.
@@ -198,6 +202,20 @@ async function main() {
     await message.pin().catch((e) => console.log('the workshop door could not be pinned, so pin it by hand: code', e && e.code));
   }
 
+  // The gallery: the owner plays a level on a page of the bot's, and the game is added to the
+  // PuzzleScript repository, to the live site and to the list /play suggests from.
+  const gallerySubmitter = cfg.gallery ? createGallerySubmitter({
+    repo: createGalleryRepo({ token: cfg.galleryToken }),
+    getSource: gists.getSource,
+    siteDir: cfg.gallerySiteDir,
+    botGamesDat: path.join(SRC_DIR, 'games_dat.js'),
+    onAdded: () => { forgetGallery(); games = loadGames(); },
+  }) : null;
+  // a wrong directory is better heard of now than when a game has already been committed
+  if (gallerySubmitter && !(fs.existsSync(path.join(cfg.gallerySiteDir, 'games_dat.js')) && fs.existsSync(path.join(cfg.gallerySiteDir, 'Gallery', 'gifs')))) {
+    console.log('GALLERY_SITE_DIR does not look like the live site (no games_dat.js or Gallery/gifs in ' + cfg.gallerySiteDir + '): games added to the gallery will not appear on it');
+  }
+
   // The Activity's page. Without the client secret it cannot sign anyone in, so it is not served.
   let httpServer = null;
   if (cfg.clientSecret) {
@@ -211,6 +229,7 @@ async function main() {
       workshopShare: sharer ? shareWorkshop : null,
       workshopPresence,
       workshopSignals,
+      gallery: gallerySubmitter ? { ownerId: cfg.ownerUserId, engineDir: path.join(SRC_DIR, 'js'), game: gallerySubmitter.game, submit: gallerySubmitter.submit } : null,
       // for working on the page on one's own machine; never set on the server
       devSession: process.env.WORKSHOP_DEV === '1',
       oauth: createOAuth({ clientId: cfg.appId, clientSecret: cfg.clientSecret }),
@@ -321,6 +340,22 @@ async function main() {
         } catch (err) {
           await interaction.editReply({ content: userMessage(err, 'start') });
         }
+        return;
+      }
+      if (interaction.isChatInputCommand() && interaction.commandName === 'admin_gallery') {
+        // Discord shows the command to the server's administrators. It is the owner's alone.
+        if (!gallerySubmitter || interaction.user.id !== cfg.ownerUserId) {
+          await interaction.reply({ content: 'only the owner of the bot can add games to the gallery', flags: MessageFlags.Ephemeral });
+          return;
+        }
+        const gistId = parseGistId(interaction.options.getString('game', true));
+        if (!gistId) {
+          await interaction.reply({ content: 'that does not look like a gist id or a play link', flags: MessageFlags.Ephemeral });
+          return;
+        }
+        // The link is the key to the page: whoever holds it can submit this one game, for six hours.
+        const token = signer.sign({ kind: 'gallery', uid: interaction.user.id, gistId }, GALLERY_LINK_MS);
+        await interaction.reply({ content: 'Play a level of it and submit it to the gallery: [open the gallery page](<' + galleryLink(cfg.workshopPublicUrl, token) + '>). The link is yours alone and lasts six hours.', flags: MessageFlags.Ephemeral });
         return;
       }
       if (interaction.isChatInputCommand() && interaction.commandName === 'rank') {

@@ -9,6 +9,7 @@
     "test": "node --test",
     "test:workshop-loading": "node scripts/check-workshop-loading.js",
     "test:workshop-browser": "node scripts/check-workshop-browser.js",
+    "test:gallery-browser": "node scripts/check-gallery-browser.js",
     "start": "node bot.js",
     "register": "node register-commands.js"
   },

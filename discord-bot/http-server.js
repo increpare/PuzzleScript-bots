@@ -27,6 +27,8 @@ const MAX_BODY = 64 * 1024;
 const MAX_PUSH_BODY = 2.5 * 1024 * 1024;
 // Generated HTML and source may total 8 MiB; JSON escaping has a separate transport limit.
 const MAX_EXPORT_BODY = 16 * 1024 * 1024;
+// A gallery submission carries a GIF of up to 2 MB, which is a third bigger as base64.
+const MAX_GALLERY_BODY = 3 * 1024 * 1024;
 const SESSION_MS = 24 * 60 * 60 * 1000;
 
 // no-cache: Discord's proxy and its clients hold on to files, and a deploy has to show at once.
@@ -72,10 +74,14 @@ function readJson(req, max = MAX_BODY) {
 // workshopShare(uid): shares the room's game and answers with the outcome, when sharing is set up.
 // workshopPresence: who is in the room and where their cursors are (see workshop-presence.js).
 // workshopSignals: short-lived pointers mapped to the current document (see workshop-signals.js).
+// gallery: the owner's gallery submission page, when it is set up: { ownerId, engineDir, game, submit }.
+//   game(gistId) and submit(gistId, body) are the submitter's (see gallery-submit.js). engineDir
+//   holds the PuzzleScript engine's scripts, which the page loads from /gallery/engine/js/.
 // devSession: hand a session to anyone who asks, without Discord. This is for working on the page
 //   on one's own machine and must never be on where the server can be reached by others.
-function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, workshop = null, workshopSaves = null, workshopShare = null, workshopPresence = null, workshopSignals = null, workshopExports = null, workshopPublicUrl = DEFAULT_PUBLIC_URL, devSession = false, log = console.error }) {
+function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, workshop = null, workshopSaves = null, workshopShare = null, workshopPresence = null, workshopSignals = null, workshopExports = null, workshopPublicUrl = DEFAULT_PUBLIC_URL, gallery = null, devSession = false, log = console.error }) {
   const roots = staticDirs.map((d) => path.resolve(d));
+  const engineRoots = gallery ? [path.resolve(gallery.engineDir)] : [];
   const downloadBase = normalizePublicUrl(workshopPublicUrl);
 
   // Who is signed in ({ uid, name }), from the session the token exchange handed the page; null
@@ -87,16 +93,26 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
   }
   const sessionUser = (req) => { const s = sessionOf(req); return s ? s.uid : null; };
 
+  // The gist a gallery link was made for; null unless the request carries the token of such a
+  // link, made for the owner. The page is handed the token by /admin_gallery and hands it back.
+  function galleryGist(req) {
+    const m = /^Bearer (\S+)$/.exec(req.headers.authorization || '');
+    const link = m ? signer.verify(m[1]) : null;
+    if (!link || link.kind !== 'gallery' || link.uid !== gallery.ownerId) return null;
+    return typeof link.gistId === 'string' && /^[0-9a-f]{4,40}$/.test(link.gistId) ? link.gistId : null;
+  }
+
   // Cursors move many times a second. Everyone waiting is told at most a few times a second.
   let presenceTimer = null;
   function tellOfPresenceSoon() {
     if (presenceTimer === null) presenceTimer = setTimeout(() => { presenceTimer = null; workshop.nudge(); }, 200);
   }
 
-  function serveStatic(pathname, res, headOnly) {
+  // dirs: the directories to look in, which are the page's own unless said otherwise.
+  function serveStatic(pathname, res, headOnly, dirs = roots) {
     let rel;
     try { rel = decodeURIComponent(pathname); } catch (e) { return json(res, 404, { error: 'not found' }); }
-    if (rel === '/' && indexHtml !== null) {
+    if (rel === '/' && indexHtml !== null && dirs === roots) {
       const body = Buffer.from(indexHtml);
       res.writeHead(200, { 'content-type': TYPES['.html'], 'content-length': body.length, 'cache-control': 'no-cache' });
       return res.end(headOnly ? undefined : body);
@@ -106,9 +122,9 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
     if (rel.includes('\0') || !type) return json(res, 404, { error: 'not found' });
     // the first directory that has the file serves it
     const tryRoot = (i) => {
-      if (i === roots.length) return json(res, 404, { error: 'not found' });
-      const file = path.resolve(roots[i], '.' + rel);
-      if (!file.startsWith(roots[i] + path.sep)) return json(res, 404, { error: 'not found' });
+      if (i === dirs.length) return json(res, 404, { error: 'not found' });
+      const file = path.resolve(dirs[i], '.' + rel);
+      if (!file.startsWith(dirs[i] + path.sep)) return json(res, 404, { error: 'not found' });
       fs.stat(file, (err, st) => {
         if (err || !st.isFile()) return tryRoot(i + 1);
         res.writeHead(200, { 'content-type': type, 'content-length': st.size, 'cache-control': 'no-cache' });
@@ -261,8 +277,27 @@ function createHttpServer({ staticDirs, indexHtml = null, oauth, signer, api, wo
       }
       return json(res, 200, await api.submit(uid, await readJson(req)));
     }
+    if (gallery && (p === '/api/gallery/game' || p === '/api/gallery/submit')) {
+      const gistId = galleryGist(req);
+      if (gistId === null) {
+        req.resume(); // whatever was sent is thrown away, so that the answer arrives
+        return json(res, 401, { error: 'this link has run out; ask for a new one with /admin_gallery' });
+      }
+      try {
+        if (p === '/api/gallery/game' && req.method === 'GET') return json(res, 200, await gallery.game(gistId));
+        if (p === '/api/gallery/submit' && req.method === 'POST') return json(res, 200, await gallery.submit(gistId, await readJson(req, MAX_GALLERY_BODY)));
+      } catch (e) {
+        if (!e || e.name !== 'GalleryError') throw e;
+        return json(res, 400, { error: e.message });
+      }
+      return json(res, 404, { error: 'not found' });
+    }
     if (p.startsWith('/api/')) return json(res, 404, { error: 'not found' });
     if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'method not allowed' });
+    // The gallery page runs the engine of the PuzzleScript checkout, which is kept apart from the
+    // workshop editor's scripts: those are another version of it, under the same names.
+    const ENGINE = '/gallery/engine/js';
+    if (gallery && p.startsWith(ENGINE + '/')) return serveStatic(p.slice(ENGINE.length), res, req.method === 'HEAD', engineRoots);
     return serveStatic(p, res, req.method === 'HEAD');
   }
 

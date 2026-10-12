@@ -24,6 +24,11 @@ function loadGallery(filePath = path.join(SRC_DIR, 'games_dat.js')) {
   return gallery;
 }
 
+// The list has changed on disk (a game was added to the gallery): read it again when next asked.
+function forgetGallery() {
+  cached = null;
+}
+
 // The community's games are listed in a file of their own, made by scripts/build-community-games.js.
 function loadCommunity(filePath = path.join(__dirname, 'community-games.json')) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'))
@@ -73,4 +78,4 @@ function suggest(games, query, limit = 25) {
   return [].concat(...buckets).slice(0, limit).map(choice);
 }
 
-module.exports = { loadGallery, loadCommunity, loadGames, suggest };
+module.exports = { loadGallery, forgetGallery, loadCommunity, loadGames, suggest };

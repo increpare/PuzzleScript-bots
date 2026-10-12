@@ -26,9 +26,20 @@ async function main() {
     .addStringOption((o) => o.setName('sound').setDescription('A sound seed, or a kind of sound to get a new seed for. Leave it out for any kind.').setAutocomplete(true));
   // No options: an object is several lines, so the command opens a box to type it into.
   const sprite = new SlashCommandBuilder().setName('sprite').setDescription('Draw PuzzleScript objects from their text');
+  const commands = [play, rank, role, workshop, sfx, sprite];
+  // The owner's command for adding a game to the puzzlescript.net gallery. Discord shows a command
+  // with no default permissions to the server's administrators and cannot hide it from them; the
+  // bot answers nobody but the owner.
+  if (cfg.gallery) {
+    commands.push(new SlashCommandBuilder()
+      .setName('admin_gallery')
+      .setDescription('Add a game to the PuzzleScript gallery (for the bot\'s owner)')
+      .addStringOption((o) => o.setName('game').setDescription('Gist id, play.html link, or gist link').setRequired(true))
+      .setDefaultMemberPermissions(0));
+  }
   const rest = new REST({ version: '10' }).setToken(cfg.discordToken);
-  await rest.put(Routes.applicationGuildCommands(cfg.appId, cfg.guildId), { body: [play.toJSON(), rank.toJSON(), role.toJSON(), workshop.toJSON(), sfx.toJSON(), sprite.toJSON()] });
-  console.log('registered /play, /rank, /role, /workshop, /sfx and /sprite for guild', cfg.guildId);
+  await rest.put(Routes.applicationGuildCommands(cfg.appId, cfg.guildId), { body: commands.map((c) => c.toJSON()) });
+  console.log('registered', commands.map((c) => '/' + c.name).join(', '), 'for guild', cfg.guildId);
 
   // Once Activities are enabled, Discord adds a global Entry Point command that launches the
   // Activity for anyone who picks the app in the launcher. Hand it to the bot, which answers with a

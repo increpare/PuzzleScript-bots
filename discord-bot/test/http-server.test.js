@@ -11,7 +11,7 @@ const { createSigner } = require('../signing');
 
 const DAY = 24 * 60 * 60 * 1000;
 
-async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, workshopSaves, workshopShare, workshopPresence, workshopSignals, workshopExports, workshopPublicUrl, devSession } = {}) {
+async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, workshopSaves, workshopShare, workshopPresence, workshopSignals, workshopExports, workshopPublicUrl, devSession, gallery } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-http-'));
   const staticDir = path.join(dir, 'site');
   // a second directory, looked in after the first
@@ -39,6 +39,7 @@ async function start(t, { oauth, api, now = () => 0, indexHtml, workshop, worksh
     workshopExports,
     workshopPublicUrl,
     devSession,
+    gallery: typeof gallery === 'function' ? gallery(dir) : gallery,
     oauth: oauth || { exchange: async (code) => ({ accessToken: 'tok-' + code, user: { id: '42', name: 'n' } }) },
     signer,
     api: api || {
@@ -517,4 +518,97 @@ test('workshop signals wake pulls, map every accepted change before delivery, an
   const expired = await pull();
   assert.deepEqual(expired.signals, []);
   assert.equal(expired.version, 3);
+});
+
+// The gallery's page: the owner is user 7, and the engine is a directory of its own.
+function galleryOf(calls, { game, submit } = {}) {
+  return (dir) => {
+    const engineDir = path.join(dir, 'engine');
+    fs.mkdirSync(path.join(engineDir, 'jsgif'), { recursive: true });
+    fs.writeFileSync(path.join(engineDir, 'engine.js'), 'var engine = 1;');
+    fs.writeFileSync(path.join(engineDir, 'jsgif', 'GIFEncoder.js'), 'var encoder = 1;');
+    return {
+      ownerId: '7',
+      engineDir,
+      game: game || (async (gistId) => { calls.push(['game', gistId]); return { gistId, source: 'title T', inGallery: false }; }),
+      submit: submit || (async (gistId, body) => { calls.push(['submit', gistId, body]); return { ok: true, commitUrl: 'c', galleryUrl: 'g', site: null, botCopy: null }; }),
+    };
+  };
+}
+const galleryToken = (signer, change = {}) => signer.sign(Object.assign({ kind: 'gallery', uid: '7', gistId: 'abc123' }, change), 6 * 60 * 60 * 1000);
+
+test('the gallery page is given its game and takes a submission, for the token\'s gist', async (t) => {
+  const calls = [];
+  const { base, signer } = await start(t, { gallery: galleryOf(calls) });
+  const token = galleryToken(signer);
+  const game = await fetch(base + '/api/gallery/game', { headers: bearer(token) });
+  assert.equal(game.status, 200);
+  assert.deepEqual(await game.json(), { gistId: 'abc123', source: 'title T', inGallery: false });
+  // a gist named in the body is not the one submitted
+  const sent = await fetch(base + '/api/gallery/submit', { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, bearer(token)), body: JSON.stringify({ gif: 'R0lG', title: 'T', author: 'A', homepage: '', gistId: 'other' }) });
+  assert.equal(sent.status, 200);
+  assert.deepEqual(await sent.json(), { ok: true, commitUrl: 'c', galleryUrl: 'g', site: null, botCopy: null });
+  assert.deepEqual(calls, [['game', 'abc123'], ['submit', 'abc123', { gif: 'R0lG', title: 'T', author: 'A', homepage: '', gistId: 'other' }]]);
+});
+
+test('the gallery endpoints are for the owner\'s gallery token alone', async (t) => {
+  const calls = [];
+  let time = 0;
+  const { base, signer } = await start(t, { gallery: galleryOf(calls), now: () => time });
+  const refused = [
+    {},
+    bearer('nonsense'),
+    bearer(signer.sign({ uid: '7', name: 'owner' }, DAY)),          // a session, not a gallery token
+    bearer(galleryToken(signer, { uid: '8' })),                      // somebody else's
+    bearer(galleryToken(signer, { kind: 'ticket' })),
+    bearer(galleryToken(signer, { gistId: 5 })),
+  ];
+  for (const headers of refused) {
+    assert.equal((await fetch(base + '/api/gallery/game', { headers })).status, 401);
+    assert.equal((await fetch(base + '/api/gallery/submit', { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, headers), body: '{}' })).status, 401);
+  }
+  const token = galleryToken(signer);
+  time = 6 * 60 * 60 * 1000;
+  assert.equal((await fetch(base + '/api/gallery/game', { headers: bearer(token) })).status, 401);
+  assert.deepEqual(calls, []);
+});
+
+test('the gallery endpoints say what is wrong with a game, and refuse a huge body', async (t) => {
+  const { GalleryError } = require('../gallery-entry');
+  const { base, signer } = await start(t, { gallery: galleryOf([], { game: async () => { throw new GalleryError('the game could not be fetched: gist not found'); } }) });
+  const token = galleryToken(signer);
+  const game = await fetch(base + '/api/gallery/game', { headers: bearer(token) });
+  assert.equal(game.status, 400);
+  assert.deepEqual(await game.json(), { error: 'the game could not be fetched: gist not found' });
+  const headers = Object.assign({ 'content-type': 'application/json' }, bearer(token));
+  // a 2 MB GIF is about 2.7 MB as base64, and fits
+  const fits = await fetch(base + '/api/gallery/submit', { method: 'POST', headers, body: JSON.stringify({ gif: 'A'.repeat(2.8 * 1024 * 1024) }) });
+  assert.equal(fits.status, 200);
+  const huge = await fetch(base + '/api/gallery/submit', { method: 'POST', headers, body: JSON.stringify({ gif: 'A'.repeat(3 * 1024 * 1024 + 1) }) });
+  assert.equal(huge.status, 413);
+  assert.equal((await fetch(base + '/api/gallery/other', { headers: bearer(token) })).status, 404);
+});
+
+test('the engine is served under the gallery page, and nothing beside it', async (t) => {
+  const { base, port } = await start(t, { gallery: galleryOf([]) });
+  const engine = await fetch(base + '/gallery/engine/js/engine.js');
+  assert.equal(engine.status, 200);
+  assert.match(engine.headers.get('content-type'), /^text\/javascript/);
+  assert.equal(await engine.text(), 'var engine = 1;');
+  assert.equal(await (await fetch(base + '/gallery/engine/js/jsgif/GIFEncoder.js')).text(), 'var encoder = 1;');
+  assert.equal((await fetch(base + '/gallery/engine/js/missing.js')).status, 404);
+  // the page's own directories are not looked in for the engine, nor the engine's for the page
+  assert.equal((await fetch(base + '/gallery/engine/js/vendor/lib.js')).status, 404);
+  assert.equal((await fetch(base + '/engine.js')).status, 404);
+  assert.equal((await rawGet(port, '/gallery/engine/js/../secret.js')).status, 404);
+  assert.equal((await rawGet(port, '/gallery/engine/js/%2e%2e/secret.js')).status, 404);
+  assert.equal((await fetch(base + '/gallery/engine/js/engine.js', { method: 'POST' })).status, 405);
+});
+
+test('without a gallery there are no gallery endpoints and no engine', async (t) => {
+  const { base, signer } = await start(t);
+  const token = galleryToken(signer);
+  assert.equal((await fetch(base + '/api/gallery/game', { headers: bearer(token) })).status, 404);
+  assert.equal((await fetch(base + '/api/gallery/submit', { method: 'POST', headers: bearer(token), body: '{}' })).status, 404);
+  assert.equal((await fetch(base + '/gallery/engine/js/engine.js')).status, 404);
 });
