@@ -456,6 +456,10 @@ async function main() {
             await interaction.reply({ content: rec ? 'the level editor is not available here' : 'this game is no longer available', flags: MessageFlags.Ephemeral });
             return;
           }
+          if (rec.meta && rec.meta.flags && rec.meta.flags.uneditable) {
+            await interaction.reply({ content: 'This game uses custom geometry and cannot be edited as a PuzzleScript level.', flags: MessageFlags.Ephemeral });
+            return;
+          }
           // What is to be edited: a sent level as it was sent, or the level this game is on as its
           // author wrote it. Either way the new level is made for the same game.
           const sent = levelOf(rec);

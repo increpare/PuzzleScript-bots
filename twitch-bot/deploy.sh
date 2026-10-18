@@ -16,7 +16,8 @@ rsync -az --delete "$PS/src/js/" "$HOST:~/$DEST/puzzlescript/src/js/"
 rsync -az "$PS/src/games_dat.js" "$HOST:~/$DEST/puzzlescript/src/games_dat.js"
 rsync -az --delete --exclude node_modules --exclude data --exclude .env --exclude test "$ROOT/discord-bot/" "$HOST:~/$DEST/discord-bot/"
 rsync -az --delete --exclude node_modules --exclude data --exclude .env "$HERE/" "$HOST:~/$DEST/twitch-bot/"
-ssh "$HOST" "cd ~/$DEST/twitch-bot && cp puzzlescript-twitch.service ~/.config/systemd/user/ && systemctl --user daemon-reload \
+ssh "$HOST" "cd ~/$DEST/discord-bot && npm ci --omit=dev --no-audit --no-fund \
+  && cd ~/$DEST/twitch-bot && cp puzzlescript-twitch.service ~/.config/systemd/user/ && systemctl --user daemon-reload \
   && if [ -f .env ] && [ -f data/music-index.json ]; then \
        systemctl --user enable puzzlescript-twitch >/dev/null && systemctl --user restart puzzlescript-twitch && sleep 3 \
        && if systemctl --user is-active --quiet puzzlescript-twitch; then \

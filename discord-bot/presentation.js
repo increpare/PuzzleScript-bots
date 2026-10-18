@@ -14,6 +14,7 @@ function button(action, style = ButtonStyle.Secondary) {
 
 // tweak: the level editor is offered here. again: this is a sent level, which can be played again once solved.
 function buildComponents(snapshot, meta, { tweak = false, again = false } = {}) {
+  if (meta && meta.flags && meta.flags.uneditable) tweak = false;
   if (snapshot.kind === 'message') return [new ActionRowBuilder().addComponents(button('continue', ButtonStyle.Primary))];
   if (snapshot.kind === 'finished' && again) {
     const row = [button('again', ButtonStyle.Primary)];

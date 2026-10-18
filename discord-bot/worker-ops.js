@@ -1,5 +1,5 @@
 'use strict';
-const { createHost } = require('./engine-host');
+const { createGameHost } = require('./game-host');
 const { buildAnimation } = require('./animation');
 const { renderSound } = require('./sfx');
 const { readSprites, renderSprites } = require('./sprites');
@@ -15,7 +15,7 @@ function spin(ms) {
 // ping:    called while a job is getting somewhere, so that the pool knows it is not stuck.
 function createOps({ totalMs = Infinity, ping = () => {}, now = Date.now, animate = buildAnimation, log = console.error } = {}) {
   const hosts = new Map();
-  const newHost = () => createHost({ totalMs, onStep: ping, now });
+  const newHost = (source) => createGameHost(source, { totalMs, onStep: ping, now });
 
   function need(gameId) {
     const host = hosts.get(gameId);
@@ -49,10 +49,15 @@ function createOps({ totalMs = Infinity, ping = () => {}, now = Date.now, animat
   return function handle({ op, gameId, args }) {
     switch (op) {
       case 'load': {
-        const host = hosts.get(gameId) || newHost();
-        const meta = host.load(args.source, args.seed, args.levelIndex, { rebuild: !!args.rebuild });
-        hosts.set(gameId, host);
-        return meta;
+        const previous = hosts.get(gameId);
+        if (previous) previous.dispose();
+        hosts.delete(gameId);
+        const host = newHost(args.source);
+        try {
+          const meta = host.load(args.source, args.seed, args.levelIndex, { rebuild: !!args.rebuild });
+          hosts.set(gameId, host);
+          return meta;
+        } catch (e) { host.dispose(); throw e; }
       }
       case 'apply': {
         need(gameId).replay(args.actions);

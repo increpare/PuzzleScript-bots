@@ -101,6 +101,7 @@ function renderLevelBlocks(s, lay) {
 }
 
 function renderLevelRGBA(s) {
+  if (s.raster) return s.raster;
   const { x: vx, y: vy, w: vw, h: vh } = s.viewport;
   const lay = levelLayout(s);
   if (lay.mode === 'block') return renderLevelBlocks(s, lay);

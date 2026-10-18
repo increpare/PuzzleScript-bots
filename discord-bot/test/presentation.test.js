@@ -16,6 +16,11 @@ test('flags remove buttons', () => {
   assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({ noundo: true, norestart: true }))), [['ps:left', 'ps:up', 'ps:down', 'ps:right', 'ps:action'], ['ps:moves']]);
 });
 
+test('games with custom geometry do not offer the PuzzleScript level editor', () => {
+  const rows = buildComponents({ kind: 'level' }, meta({ uneditable: true }), { tweak: true });
+  assert.ok(!ids(rows).flat().includes('ps:tweak'));
+});
+
 test('message frames get a continue button; finished gets none', () => {
   assert.deepEqual(ids(buildComponents({ kind: 'message' }, meta({}))), [['ps:continue']]);
   assert.deepEqual(ids(buildComponents({ kind: 'finished' }, meta({}))), []);

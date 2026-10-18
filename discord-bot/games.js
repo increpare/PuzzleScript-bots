@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const { createSourceStore } = require('./sources');
 const { splice } = require('./levels');
+const pushingIt = require('./legacy/pushing-it');
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
@@ -302,6 +303,9 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
         try {
           const rec = JSON.parse(fs.readFileSync(path.join(gamesDir, f), 'utf8'));
           if (!rec || typeof rec.gameId !== 'string' || !Array.isArray(rec.inputs)) continue;
+          // Old records compiled the decoy. Upgrade their metadata before any button (including
+          // a stale pencil) is handled, without starting a worker or replaying a game here.
+          if (rec.sourceHash === pushingIt.SOURCE_HASH) rec.meta = pushingIt.getMetadata();
           records.set(rec.gameId, rec);
           const size = fs.statSync(path.join(gamesDir, f)).size;
           recordSizes.set(rec.gameId, size);

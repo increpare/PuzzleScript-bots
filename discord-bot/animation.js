@@ -39,7 +39,27 @@ function buildAnimation({ base, frames, onProgress = null, budgetMs = 5000, now 
   add('#ff00ff'); // what the renderer draws for a colour it cannot read
   for (const c of [frames.background, frames.textColor, base.background, base.textColor]) if (!isTransparent(c)) add(c);
   for (const id of Object.keys(frames.sprites)) for (const c of frames.sprites[id].colors) if (!isTransparent(c)) add(c);
+  if (frames.raster) {
+    // Keep the game's solid colours exact. A bounded colour cube covers Canvas antialiasing
+    // around fractional positions and rotations without a palette per frame.
+    for (const c of frames.palette || []) add(c);
+    for (let r = 0; r <= 255; r += 51) for (let g = 0; g <= 255; g += 51) for (let b = 0; b <= 255; b += 51) {
+      add('#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join(''));
+    }
+  }
   if (palette.length > 256) return null;
+
+  const nearest = (key) => {
+    const r = key >> 16, g = (key >> 8) & 255, b = key & 255;
+    let best = 0, distance = Infinity;
+    for (let i = 0; i < palette.length; i++) {
+      const c = palette[i];
+      const d = (r - c[0]) ** 2 + (g - c[1]) ** 2 + (b - c[2]) ** 2;
+      if (d < distance) { best = i; distance = d; }
+    }
+    indexOf.set(key, best);
+    return best;
+  };
 
   const size = FRAME_W * FRAME_H;
   const toIndices = (img) => {
@@ -47,12 +67,12 @@ function buildAnimation({ base, frames, onProgress = null, budgetMs = 5000, now 
     let lastKey = -1, last = 0;
     for (let i = 0; i < size; i++) {
       const key = (img.rgba[i * 4] << 16) | (img.rgba[i * 4 + 1] << 8) | img.rgba[i * 4 + 2];
-      if (key !== lastKey) { lastKey = key; const v = indexOf.get(key); last = v === undefined ? 0 : v; }
+      if (key !== lastKey) { lastKey = key; const v = indexOf.get(key); last = v === undefined ? (frames.raster ? nearest(key) : 0) : v; }
       out[i] = last;
     }
     return out;
   };
-  const drawFrame = (f) => (f.kind === 'level'
+  const drawFrame = (f) => f.raster || (f.kind === 'level'
     ? renderLevelRGBA({ kind: 'level', width: f.width, height: f.height, viewport: f.viewport, cells: cellsOf(f.objects, frames.stride, frames.objectCount), sprites: frames.sprites, background: frames.background })
     : renderTextRGBA({ kind: f.kind, message: f.message, background: frames.background, textColor: frames.textColor }));
   const drawBase = () => (base.kind === 'level' ? renderLevelRGBA(base) : renderTextRGBA(base));
@@ -97,7 +117,8 @@ function buildAnimation({ base, frames, onProgress = null, budgetMs = 5000, now 
   // final state for one blink before the turns play.
   if (final) put(final, MIN_DELAY_CS);
   for (const f of frames.list) {
-    put(toIndices(drawFrame(f)), intervalCs * f.repeat);
+    const delayCs = f.delayMs === undefined ? intervalCs * f.repeat : Math.max(MIN_DELAY_CS, Math.round(f.delayMs / 10));
+    put(toIndices(drawFrame(f)), delayCs);
     if (onProgress) onProgress();
     if (now() > deadline) return null;
   }

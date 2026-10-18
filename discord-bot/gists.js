@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { createSourceStore } = require('./sources');
+const pushingIt = require('./legacy/pushing-it');
 
 class GistError extends Error {}
 
@@ -76,6 +77,7 @@ function createGistStore({ dataDir, token, fetchImpl = globalThis.fetch, now = D
 
   async function getSource(id) {
     if (!/^[0-9a-f]{4,40}$/i.test(String(id))) throw new GistError('invalid gist id');
+    if (String(id).toLowerCase() === pushingIt.GIST_ID) return pushingIt.getSource();
     const cached = readCache(id);
     // the index entry is only useful while the source it points at is still in the store
     const cachedSource = cached && cached.hash ? sources.load(cached.hash) : null;

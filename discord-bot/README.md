@@ -51,6 +51,26 @@ registered with Discord point. When a change alters what the bot keeps about peo
 - Every frame is 400×300 px (matches Discord's embed placeholder size so the panel never resizes).
 - Limits: 1 MB source, 10 s compile, 3 s for any single turn of the engine, 20 s for a move's whole chain of `again` turns, 30 live games.
 
+## Pushing It
+
+[Pushing It by Jack Lance](https://www.puzzlescript.net/play.html?p=2fe3172d2b9fe684977d184f1b6226d5)
+works with the usual `/play` link, buttons, typed moves, level selection, scores and saved games.
+Its real game is JavaScript hidden in its homepage metadata; compiling its PuzzleScript alone
+only loads a decoy. A dedicated host runs Jack's original code with Canvas 2D and deterministic
+timers, including its fractional positions, rotations and piston animations.
+
+The original gist resolves to a preserved copy in `legacy/pushing-it/script.txt`, so it can be
+started without GitHub. Its revision, fingerprint and attribution are in that folder's README.
+Only that exact source selects the custom host. Other games' homepage code is never executed.
+The pencil is unavailable for this game because an ordinary PuzzleScript level cannot represent
+its custom geometry. `npm ci` installs the Canvas dependency, including its platform binary;
+no browser is needed to run the bot.
+
+`npm run test:pushing-it-browser` compares the host with the original homepage injection in
+Chromium across all twelve levels. Like the other browser checks, it uses Playwright from
+`PUZZLESCRIPT_LABS_DIR` (or the default labs checkout) and an installed Chromium browser.
+The regular `npm test` covers the custom host and real-worker persistence without a browser.
+
 ## Again chains and animation
 
 A move that sets off `again` turns is shown as one animated GIF, a frame per turn at the game's

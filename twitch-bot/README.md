@@ -31,7 +31,9 @@ Twitch itself rejects a message identical to the one the same viewer sent less t
 The bot uses the engine in `../puzzlescript/src/js` (the PuzzleScript submodule
 at the root of this repository) and several modules of `../discord-bot` as a
 library. `deploy.sh` syncs all three to `~/puzzlescript-twitch/` on the Pi,
-separate from the Discord bot.
+separate from the Discord bot, and installs the shared modules' dependencies.
+This includes Canvas 2D for Jack Lance's Pushing It, which uses the same preserved
+JavaScript host as the Discord bot.
 
 ## Going live (once)
 
@@ -59,6 +61,7 @@ Steps 1 and 4 run on your own machine, from `twitch-bot/`; steps 2, 3 and 5 run 
 
 From the `twitch-bot` folder (`cd twitch-bot`):
 
+    npm --prefix ../discord-bot ci # shared worker dependencies, including Canvas
     npm test                      # the end-to-end test needs ffmpeg
     OUTPUT=/tmp/test.flv TWITCH_CHANNEL=somechannel GITHUB_TOKEN=... node main.js
 
