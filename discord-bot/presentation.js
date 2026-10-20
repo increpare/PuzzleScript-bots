@@ -2,11 +2,10 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, LabelBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, escapeMarkdown } = require('discord.js');
 const { GistError } = require('./gists');
 
-// moves, tweak and again are not moves. moves opens a box to type moves into, tweak opens the level
-// editor and again starts a solved sent level afresh (see bot.js); none reaches the game registry as
-// an input.
-const ACTIONS = ['up', 'left', 'down', 'right', 'action', 'undo', 'restart', 'continue', 'moves', 'tweak', 'again'];
-const ACTION_EMOJI = { left: '⬅️', up: '⬆️', down: '⬇️', right: '➡️', action: '✖️', undo: '↩️', restart: '🔄', continue: '▶️', moves: '⌨️', tweak: '✏️', again: '🔁' };
+// moves opens a typing box, tweak opens the editor, again restarts a solved sent level,
+// and replay posts a fresh normal game. None of these is a game input.
+const ACTIONS = ['up', 'left', 'down', 'right', 'action', 'undo', 'restart', 'continue', 'moves', 'tweak', 'again', 'replay'];
+const ACTION_EMOJI = { left: '⬅️', up: '⬆️', down: '⬇️', right: '➡️', action: '✖️', undo: '↩️', restart: '🔄', continue: '▶️', moves: '⌨️', tweak: '✏️', again: '🔁', replay: '🔁' };
 
 function button(action, style = ButtonStyle.Secondary) {
   return new ButtonBuilder().setCustomId('ps:' + action).setEmoji(ACTION_EMOJI[action]).setStyle(style);
@@ -21,6 +20,7 @@ function buildComponents(snapshot, meta, { tweak = false, again = false } = {}) 
     if (tweak) row.push(button('tweak'));
     return [new ActionRowBuilder().addComponents(...row)];
   }
+  if (snapshot.kind === 'finished') return [new ActionRowBuilder().addComponents(button('replay').setLabel('Play again'))];
   if (snapshot.kind !== 'level') return [];
   if (snapshot.won) {
     return [new ActionRowBuilder().addComponents(button('continue', ButtonStyle.Primary).setLabel(snapshot.animating ? 'Continue animation' : 'Next level'))];

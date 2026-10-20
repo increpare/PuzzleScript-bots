@@ -8,6 +8,11 @@ Winning leaves the completed level and its ending animation visible. Press **Nex
 when ready to move to the next screen (or finish the game after its last level). The winning
 move receives solve credit; pressing Next level does not. Typed move sequences stop at the win.
 
+Finished games offer **Play again**, which posts a fresh game from the beginning in
+the same channel and keeps the completed game intact. A private jump link takes you
+to the new post if it is out of view. Solved custom levels keep their existing replay
+button, which restarts the level in place.
+
 ## Layout
 
 The bot loads the engine from `../puzzlescript/src/js`, the PuzzleScript

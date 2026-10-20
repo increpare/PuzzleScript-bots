@@ -21,9 +21,12 @@ test('games with custom geometry do not offer the PuzzleScript level editor', ()
   assert.ok(!ids(rows).flat().includes('ps:tweak'));
 });
 
-test('message frames get a continue button; finished gets none', () => {
+test('message frames get continue; finished games get a labelled fresh replay button', () => {
   assert.deepEqual(ids(buildComponents({ kind: 'message' }, meta({}))), [['ps:continue']]);
-  assert.deepEqual(ids(buildComponents({ kind: 'finished' }, meta({}))), []);
+  const rows = buildComponents({ kind: 'finished' }, meta({}));
+  assert.deepEqual(ids(rows), [['ps:replay']]);
+  assert.equal(rows[0].toJSON().components[0].label, 'Play again');
+  assert.equal(parseCustomId('ps:replay'), 'replay');
 });
 
 test('embed carries title, author, level footer and attachment image', () => {
@@ -177,10 +180,10 @@ test('a solved level lists who solved it', () => {
   assert.equal(dead.footer.text, 'stopped: x');
 });
 
-test('a solved level offers playing again, and the pencil where it is allowed; a finished normal game offers nothing', () => {
+test('a solved level retains in-place replay and its optional pencil', () => {
   assert.deepEqual(ids(buildComponents({ kind: 'finished' }, meta({}), { again: true })), [['ps:again']]);
   assert.deepEqual(ids(buildComponents({ kind: 'finished' }, meta({}), { again: true, tweak: true })), [['ps:again', 'ps:tweak']]);
-  assert.deepEqual(ids(buildComponents({ kind: 'finished' }, meta({}), { tweak: true })), []);
+  assert.deepEqual(ids(buildComponents({ kind: 'finished' }, meta({}), { tweak: true })), [['ps:replay']]);
   assert.deepEqual(ids(buildComponents({ kind: 'level' }, meta({}), { again: true })), [['ps:left', 'ps:up', 'ps:down', 'ps:right', 'ps:action'], ['ps:undo', 'ps:restart', 'ps:moves']]);
   assert.equal(parseCustomId('ps:again'), 'again');
 });

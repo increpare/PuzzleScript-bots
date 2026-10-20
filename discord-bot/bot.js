@@ -37,6 +37,7 @@ const { createLevelStore } = require('./levels');
 const { createThreadIndex } = require('./threads');
 const { createSigner, signingKey } = require('./signing');
 const { createLevelPoster } = require('./level-posts');
+const { playAgain } = require('./play-again');
 
 const TICKET_MS = 24 * 60 * 60 * 1000;
 
@@ -51,8 +52,8 @@ function frame(record, snapshot, gif, tweak, level) {
   if (text) files.push(new AttachmentBuilder(text.data, { name: text.name }));
   let components = [];
   if (record.status === 'playing') components = buildComponents(snapshot, record.meta, { tweak });
-  // a solved sent level can be played again, and tweaked
-  else if (record.status === 'finished' && level) components = buildComponents(snapshot, record.meta, { tweak, again: true });
+  // Sent levels replay in place; normal games offer a fresh post.
+  else if (record.status === 'finished') components = buildComponents(snapshot, record.meta, { tweak, again: !!level });
   return { content: '', embeds: [buildEmbed({ record, snapshot, attachmentName: name, level })], files, components };
 }
 
@@ -451,6 +452,10 @@ async function main() {
         const action = parseCustomId(interaction.customId);
         if (!action) return;
         const gameId = interaction.message.id;
+        if (action === 'replay') {
+          await playAgain(interaction, { registry, frame: (record, snapshot) => frame(record, snapshot, null, canTweak(interaction), null) });
+          return;
+        }
         if (action === 'tweak') {
           const rec = registry.get(gameId);
           if (!canTweak(interaction) || !rec) {
