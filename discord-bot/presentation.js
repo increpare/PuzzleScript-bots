@@ -22,6 +22,9 @@ function buildComponents(snapshot, meta, { tweak = false, again = false } = {}) 
     return [new ActionRowBuilder().addComponents(...row)];
   }
   if (snapshot.kind !== 'level') return [];
+  if (snapshot.won) {
+    return [new ActionRowBuilder().addComponents(button('continue', ButtonStyle.Primary).setLabel(snapshot.animating ? 'Continue animation' : 'Next level'))];
+  }
   const flags = (meta && meta.flags) || {};
   if (snapshot.animating) {
     // An again chain is still running, and the engine ignores moves until it is undone or restarted
@@ -86,7 +89,7 @@ function spriteProblems(problems) {
 function typedShortfall({ made, asked, snapshot, solved }) {
   if (made >= asked) return null;
   let why = 'the game did not take the next one';
-  if (solved) why = 'the level was solved there';
+  if (solved || snapshot.won) why = 'the level was solved there';
   else if (snapshot.kind === 'finished') why = 'the game is over';
   else if (snapshot.kind === 'message') why = 'a message came up';
   else if (snapshot.animating) why = 'an animation is running';
@@ -113,6 +116,7 @@ function footerText(record, snapshot, sent) {
   const n = snapshot.levelNumber !== undefined ? snapshot.levelNumber : (snapshot.levelIndex | 0) + 1;
   const m = snapshot.realLevelCount !== undefined ? snapshot.realLevelCount : snapshot.levelCount;
   const level = sent ? 'Custom level' : 'Level ' + n + ' of ' + m;
+  if (snapshot.won) return level + ' · ' + (sent ? solvedByText(sent.solvedBy) : record.lastMover ? 'Solved by ' + record.lastMover : 'Solved');
   const text = record.lastMover ? level + ' (Last move: ' + record.lastMover + ')' : level;
   // An again chain is still running: say which buttons get out of it. On a message the only button
   // is continue, which dismisses the message, so there is nothing to explain yet.

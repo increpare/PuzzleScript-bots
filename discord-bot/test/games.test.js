@@ -409,7 +409,7 @@ function storedLevel(dir, text = TWO_STEPS) {
   return { levels, level };
 }
 
-test('a game on a stored level is that one level, and solving it finishes the game', async () => {
+test('a game on a stored level keeps its solved board until Next level finishes the game', async () => {
   const dir = tmp();
   const pool = createPool({ size: 1 });
   const { levels, level } = storedLevel(dir);
@@ -426,8 +426,12 @@ test('a game on a stored level is that one level, and solving it finishes the ga
     assert.equal(walk.solvedLevel, null);
     const push = await reg.press('L1', 'right', 'Bob');
     assert.equal(push.solvedLevel, 0);
-    assert.equal(push.record.status, 'finished');
-    assert.equal(push.snapshot.kind, 'finished');
+    assert.equal(push.record.status, 'playing');
+    assert.equal(push.snapshot.won, true);
+    const done = await reg.press('L1', 'continue', 'Ada');
+    assert.equal(done.record.status, 'finished');
+    assert.equal(done.snapshot.kind, 'finished');
+    assert.equal(done.record.lastMover, 'Bob');
   } finally { await reg.close(); await pool.close(); }
 });
 
@@ -487,6 +491,7 @@ test('a finished game on a stored level can be played again, in the same record'
     assert.equal(early.snapshot.kind, 'level');
     await reg.press('L', 'right', 'Bob');
     await reg.press('L', 'right', 'Bob');
+    await reg.press('L', 'continue', 'Bob');
     assert.equal(reg.get('L').status, 'finished');
     const fresh = await reg.again('L');
     assert.equal(fresh.applied, true);
@@ -537,8 +542,10 @@ test('typed moves that win a level stop there: the level is reported solved and 
   try {
     await reg.start({ gameId: 'w', channelId: 'c', gistId: 'abcd' });
     const win = await reg.run('w', ['right', 'left', 'left'], 'Ada');
-    assert.deepEqual([win.made, win.solvedLevel, win.snapshot.levelIndex], [1, 0, 1]);
+    assert.deepEqual([win.made, win.solvedLevel, win.snapshot.levelIndex], [1, 0, 0]);
+    assert.equal(win.snapshot.won, true);
     assert.deepEqual(win.record.inputs, ['right']);
+    await reg.press('w', 'continue');
     const on = await reg.run('w', ['left', 'left'], 'Ada');
     assert.deepEqual([on.made, on.solvedLevel], [2, null], 'moving about the next level solves nothing');
   } finally { await reg.close(); await pool.close(); }

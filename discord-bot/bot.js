@@ -267,7 +267,8 @@ async function main() {
       const solved = solvedLevel !== null && solvedLevel !== undefined;
       // A sent level lists its solvers on its own message, so they are noted before it is drawn.
       if (solved && record.levelId) levelStore.addSolver(record.levelId, { id: interaction.user.id, name: displayName(interaction) });
-      await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot, gif, canTweak(interaction), levelOf(record))));
+      // Stale clicks or an already-open moves modal must not replace the ending GIF with a still.
+      if (applied || !snapshot.won) await enqueueEdit(gameId, () => interaction.editReply(frame(record, snapshot, gif, canTweak(interaction), levelOf(record))));
       console.log('edited', Date.now() - t0, 'ms');
       // Typed moves that were not all made: only whoever typed them is told.
       const short = typed === null ? null : typedShortfall({ made: made || 0, asked: typed, snapshot, solved });

@@ -4,6 +4,10 @@ Play a PuzzleScript game inside a Discord channel. `/play <gist>` posts the
 level as an image with move, action, undo and restart buttons. Anyone in the
 channel can press them. Realtime games are not supported.
 
+Winning leaves the completed level and its ending animation visible. Press **Next level ▶**
+when ready to move to the next screen (or finish the game after its last level). The winning
+move receives solve credit; pressing Next level does not. Typed move sequences stop at the win.
+
 ## Layout
 
 The bot loads the engine from `../puzzlescript/src/js`, the PuzzleScript

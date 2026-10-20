@@ -54,7 +54,7 @@ function createOps({ totalMs = Infinity, ping = () => {}, now = Date.now, animat
         hosts.delete(gameId);
         const host = newHost(args.source);
         try {
-          const meta = host.load(args.source, args.seed, args.levelIndex, { rebuild: !!args.rebuild });
+          const meta = host.load(args.source, args.seed, args.levelIndex, { rebuild: !!args.rebuild, manualAdvanceFrom: args.manualAdvanceFrom ?? null, legacyStartup: !!args.legacyStartup });
           hosts.set(gameId, host);
           return meta;
         } catch (e) { host.dispose(); throw e; }

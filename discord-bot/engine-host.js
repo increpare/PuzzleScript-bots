@@ -126,6 +126,8 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
     set messagetext(v) { messagetext = v; },
     get againing() { return againing; },
     set againing(v) { againing = v; },
+    get winning() { return winning; },
+    set winning(v) { winning = v; },
     get oldflickscreendat() { return oldflickscreendat; },
     get errorStrings() { return errorStrings; },
     get errorCount() { return errorCount; },
@@ -138,6 +140,16 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
   ctx.stripHTMLTags = (s) => s.replace(/<\/?[a-zA-Z][^>]*>/g, '').trim();
   ps.unitTesting = true;
   ps.lazyFunctionGeneration = false;
+
+  // Discord waits on the solved board. Other callers retain the engine's test-mode advancement.
+  // Old saved inputs before this boundary must still replay with their original behavior.
+  let manualAdvanceFrom = null, waitForNext = false, replayedInputs = 0;
+  const originalDoWin = ctx.DoWin;
+  ctx.DoWin = function () {
+    if (!waitForNext) return originalDoWin();
+    ps.unitTesting = false;
+    try { return originalDoWin(); } finally { ps.unitTesting = true; }
+  };
 
   // Make every level load deterministic from the game seed. The engine
   // generates a Math.random()-based seed when none is passed (nextLevel,
@@ -159,7 +171,10 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
   }
 
   // rebuild: the game is being brought back from its input log, which allows the longer replay budget
-  function load(source, seed, levelIndex, { rebuild = false } = {}) {
+  function load(source, seed, levelIndex, { rebuild = false, manualAdvanceFrom: boundary = null, legacyStartup = false } = {}) {
+    manualAdvanceFrom = boundary;
+    waitForNext = boundary !== null && !legacyStartup;
+    replayedInputs = 0;
     gameSeed = String(seed);
     resetErrors();
     // Seeding asymmetry: the first level is seeded with the raw game seed (matching the
@@ -173,7 +188,7 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
     if (ps.errorCount > 0) throw new CompileError(firstError());
     if (!ps.state || !ps.state.levels || ps.state.levels.length === 0) throw new CompileError('game has no levels');
     begin(false, rebuild ? REPLAY_BUDGET_SCALE : 1);
-    try { drainAgain(); } finally { end(); }
+    try { drainAgain(); } finally { end(); waitForNext = boundary !== null; }
     const md = ps.state.metadata || {};
     return {
       title: md.title || 'untitled',
@@ -368,6 +383,7 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
       background: hexColor(state.bgcolor),
       textColor: hexColor(state.fgcolor),
       message: null,
+      won: ps.winning,
       // 'loop' or 'more' while an again chain is still running (moves are ignored until it is undone,
       // restarted or, for 'more', continued); null otherwise
       animating: ps.againing ? (pending || 'more') : null,
@@ -437,6 +453,7 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
   }
 
   function rawInput(code) {
+    if (ps.winning) return;
     ctx.processInput(code);
     afterStep();
     drainAgain();
@@ -446,6 +463,11 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
 
   function doInput(action) {
     const kind = kindNow();
+    if (ps.winning) {
+      if (action !== 'continue') return false;
+      ps.winning = false;
+      ctx.nextLevel(); afterStep(); drainAgain(); return true;
+    }
     if (action === 'continue') {
       if (kind === 'messageLevel') { ctx.nextLevel(); afterStep(); drainAgain(); return true; }
       if (kind === 'messageRule') { ps.messagetext = ''; return true; }
@@ -499,7 +521,7 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
         if (!doInput(action)) break;
         made++;
         holdFrame();
-        if (kindNow() !== 'level' || (ps.curlevel | 0) !== startLevel) break;
+        if (ps.winning || kindNow() !== 'level' || (ps.curlevel | 0) !== startLevel) break;
       }
       return made;
     } finally {
@@ -520,8 +542,9 @@ function createHost({ totalMs = Infinity, stepCap = STEP_CAP, maxFrames = MAX_FR
   // log was within budget when it was made, and a busy moment must not make a game impossible to resume.
   function replay(actions) {
     for (const a of actions) {
+      waitForNext = manualAdvanceFrom !== null && replayedInputs >= manualAdvanceFrom;
       begin(false, REPLAY_BUDGET_SCALE);
-      try { doInput(a); } finally { end(); }
+      try { doInput(a); replayedInputs++; } finally { end(); waitForNext = manualAdvanceFrom !== null; }
     }
   }
 
