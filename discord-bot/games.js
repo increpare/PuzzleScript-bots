@@ -124,11 +124,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
       if (rec.sourceHash) sources.save(source);
     }
     try {
-      if (rec.manualAdvanceFrom === undefined || rec.manualAdvanceFrom === null) {
-        rec.manualAdvanceFrom = rec.inputs.length;
-        rec.legacyStartup = true;
-      }
-      await pool.load(rec.gameId, source, rec.seed, rec.startLevel, { rebuild: true, manualAdvanceFrom: rec.manualAdvanceFrom, legacyStartup: !!rec.legacyStartup });
+      await pool.load(rec.gameId, source, rec.seed, rec.startLevel, { rebuild: true });
       if (rec.inputs.length) await pool.apply(rec.gameId, rec.inputs);
     } catch (e) {
       // never leave a half-replayed game registered in the pool
@@ -174,17 +170,14 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
         await ensureLive(rec);
         const { made, snapshot, gif } = await make();
         const applied = made.length > 0;
+        if (applied) { rec.inputs.push(...made); refusals.delete(gameId); if (by) rec.lastMover = String(by).slice(0, 80); }
+        // A level is solved when a move (not continue/undo/restart) takes play from a level to a later one.
         const prev = rec.cur;
-        if (applied) {
-          rec.inputs.push(...made); refusals.delete(gameId);
-          if (by && !(prev && prev.won)) rec.lastMover = String(by).slice(0, 80);
-        }
-        // Credit the winning move, before anyone presses Next level. Also recognize legacy transitions.
         // (Typed moves stop where play leaves the level, so the last of them is the one that did it.)
         const isMove = applied && !['continue', 'undo', 'restart'].includes(made[made.length - 1]);
         const advanced = snapshot.kind === 'finished' || snapshot.levelIndex > (prev ? prev.levelIndex : Infinity);
-        const solvedLevel = isMove && prev && prev.kind === 'level' && !prev.won && (snapshot.won || advanced) ? prev.levelIndex : null;
-        rec.cur = { kind: snapshot.kind, levelIndex: snapshot.levelIndex, won: !!snapshot.won };
+        const solvedLevel = isMove && prev && prev.kind === 'level' && advanced ? prev.levelIndex : null;
+        rec.cur = { kind: snapshot.kind, levelIndex: snapshot.levelIndex };
         if (snapshot.kind === 'finished') rec.status = 'finished';
         if (applied || snapshot.kind === 'finished') persist(rec);
         return { record: rec, snapshot, applied, made: made.length, solvedLevel, gif: gif || null };
@@ -227,9 +220,9 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
       try {
       if (level) gistId = level.gistId;
       const source = level ? await levelSource(level) : await getSource(gistId);
-      const rec = { gameId, channelId, gistId, seed: gameId, sourceHash: sha256(source), startLevel: 0, inputs: [], manualAdvanceFrom: 0, status: 'playing', meta: null, createdAt: now(), updatedAt: now() };
+      const rec = { gameId, channelId, gistId, seed: gameId, sourceHash: sha256(source), startLevel: 0, inputs: [], status: 'playing', meta: null, createdAt: now(), updatedAt: now() };
       if (level) rec.levelId = level.id;
-      rec.meta = await pool.load(gameId, source, rec.seed, 0, { manualAdvanceFrom: 0 });
+      rec.meta = await pool.load(gameId, source, rec.seed, 0);
       if (!level && startLevelNumber > 1) {
         const real = rec.meta.realLevels || [];
         if (startLevelNumber > real.length) {
@@ -237,14 +230,14 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
           throw Object.assign(new Error('that game only has ' + real.length + (real.length === 1 ? ' level' : ' levels')), { name: 'LevelRangeError' });
         }
         rec.startLevel = real[startLevelNumber - 1];
-        rec.meta = await pool.load(gameId, source, rec.seed, rec.startLevel, { manualAdvanceFrom: 0 });
+        rec.meta = await pool.load(gameId, source, rec.seed, rec.startLevel);
       }
       sources.save(source);
       records.set(gameId, rec);
       touchLive(gameId);
       await enforceLiveLimit();
       const snapshot = await pool.snapshot(gameId);
-      rec.cur = { kind: snapshot.kind, levelIndex: snapshot.levelIndex, won: !!snapshot.won };
+      rec.cur = { kind: snapshot.kind, levelIndex: snapshot.levelIndex };
       if (snapshot.kind === 'finished') rec.status = 'finished';
       persist(rec);
       return { record: rec, snapshot };
@@ -284,8 +277,6 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
           await pool.drop(gameId).catch(() => {});
           forgetLive(gameId);
           rec.inputs = [];
-          rec.manualAdvanceFrom = 0;
-          delete rec.legacyStartup;
           rec.status = 'playing';
           delete rec.lastMover;
           try {
@@ -296,7 +287,7 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
             throw e;
           }
           const snapshot = await pool.snapshot(gameId);
-          rec.cur = { kind: snapshot.kind, levelIndex: snapshot.levelIndex, won: !!snapshot.won };
+          rec.cur = { kind: snapshot.kind, levelIndex: snapshot.levelIndex };
           persist(rec);
           return { record: rec, snapshot, applied: true };
         } finally { unmarkBusy(gameId); }

@@ -45,18 +45,9 @@ function createPushingItHost({ totalMs = Infinity, stepCap = 1000, maxFrames = 3
   Object.assign(ctx, vm.runInContext('({ titleWidth: TERMINAL_WIDTH, titleHeight: TERMINAL_HEIGHT })', ctx));
 
   let clock = 0, serial = 0;
-  let manualAdvanceFrom = null, waitForNext = false, replayedInputs = 0;
-  let schedulingWin = false, pendingAdvance = null;
   const timers = new Map();
   ctx.setTimeout = (fn, delay = 0) => {
     const id = ++serial;
-    // The original win() schedules the level transition. Keep that callback for Next level,
-    // while all of the move's drawing and piston timers are still allowed to finish.
-    if (schedulingWin && waitForNext) {
-      pendingAdvance = fn;
-      ps.againing = false;
-      return id;
-    }
     timers.set(id, { id, due: clock + Math.max(0, Number(delay) || 0), fn });
     return id;
   };
@@ -123,23 +114,14 @@ function createPushingItHost({ totalMs = Infinity, stepCap = 1000, maxFrames = 3
     }
   }
 
-  function load(source, seed, levelIndex = 0, { rebuild = false, manualAdvanceFrom: boundary = null, legacyStartup = false } = {}) {
+  function load(source, seed, levelIndex = 0, { rebuild = false } = {}) {
     if (!matchesSource(source)) throw new CompileError('this is not the preserved version of Pushing It');
     timers.clear();
-    manualAdvanceFrom = boundary;
-    waitForNext = boundary !== null && !legacyStartup;
-    replayedInputs = 0;
-    pendingAdvance = null;
     interrupted = null;
     clock = 0;
     // restart leaves the engine on its title screen, exactly where play.html injects the payload.
     ctx.compile(['restart'], source, String(seed));
     payload.runInContext(ctx);
-    const originalWin = ctx.win;
-    ctx.win = function () {
-      schedulingWin = true;
-      try { return originalWin(); } finally { schedulingWin = false; }
-    };
     if (!Number.isInteger(levelIndex) || levelIndex < 0 || levelIndex >= ctx.grid.length) throw new CompileError('that is not a Pushing It level');
     ctx.nextLevel();
     if (levelIndex !== 0) {
@@ -149,7 +131,7 @@ function createPushingItHost({ totalMs = Infinity, stepCap = 1000, maxFrames = 3
       ctx.draw();
     }
     begin(false, rebuild ? REPLAY_BUDGET_SCALE : 1);
-    try { afterStep(); drain(); } finally { end(); waitForNext = boundary !== null; }
+    try { afterStep(); drain(); } finally { end(); }
     return getMetadata();
   }
 
@@ -159,7 +141,6 @@ function createPushingItHost({ totalMs = Infinity, stepCap = 1000, maxFrames = 3
       kind: finished ? 'finished' : 'level', levelIndex: Math.min(ctx.mylevel, ctx.grid.length - 1),
       levelCount: ctx.grid.length, levelNumber: Math.min(ctx.mylevel + 1, ctx.grid.length), realLevelCount: ctx.grid.length,
       background: '#c1fbc6', textColor: '#a20021', message: null,
-      won: pendingAdvance !== null,
       animating: timers.size ? 'more' : null,
       width: 0, height: 0, cells: [], sprites: {}, viewport: { x: 0, y: 0, w: 0, h: 0 },
       ...(finished ? {} : { raster: raster() }),
@@ -169,17 +150,11 @@ function createPushingItHost({ totalMs = Infinity, stepCap = 1000, maxFrames = 3
   function doInput(action) {
     if (ps.titleScreen) return false;
     if (action === 'continue') {
-      if (!timers.size && pendingAdvance) {
-        const advance = pendingAdvance;
-        pendingAdvance = null;
-        advance(); afterStep(); remember(); drain(); return true;
-      }
       if (!timers.size) return false;
       drain();
       if (!timers.size) interrupted = null;
       return true;
     }
-    if (pendingAdvance) return false;
     if (action === 'undo' || action === 'restart') {
       const restore = timers.size && interrupted;
       timers.clear();
@@ -218,7 +193,7 @@ function createPushingItHost({ totalMs = Infinity, stepCap = 1000, maxFrames = 3
         clock += MOVE_MS;
         if (!doInput(action)) break;
         made++;
-        if (pendingAdvance || ps.titleScreen || ctx.mylevel !== start || timers.size) break;
+        if (ps.titleScreen || ctx.mylevel !== start || timers.size) break;
       }
       return made;
     } finally { end(); }
@@ -239,9 +214,8 @@ function createPushingItHost({ totalMs = Infinity, stepCap = 1000, maxFrames = 3
     load, snapshot, input, run,
     replay(actions) {
       for (const action of actions) {
-        waitForNext = manualAdvanceFrom !== null && replayedInputs >= manualAdvanceFrom;
         begin(false, REPLAY_BUDGET_SCALE);
-        try { doInput(action); replayedInputs++; } finally { end(); waitForNext = manualAdvanceFrom !== null; }
+        try { doInput(action); } finally { end(); }
       }
     },
     takeFrames() { const frames = lastFrames; lastFrames = null; return frames; },

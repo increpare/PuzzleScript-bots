@@ -123,14 +123,14 @@ function createPool({ size = 2, compileMs = 10000, inputMs = 3000, totalMs = 200
 
   return {
     // rebuild: the game is being brought back from its input log (see above)
-    async load(gameId, source, seed, levelIndex, { rebuild = false, manualAdvanceFrom = null, legacyStartup = false } = {}) {
+    async load(gameId, source, seed, levelIndex, { rebuild = false } = {}) {
       if (closed) throw Object.assign(new Error('pool closed'), { name: 'PoolClosedError' });
       let entry = gameToWorker.get(gameId);
       if (!entry) { entry = workers[rr++ % workers.length]; }
       gameToWorker.set(gameId, entry);
       entry.games.add(gameId);
       try {
-        return await call(entry, gameId, 'load', { source, seed, levelIndex, rebuild, manualAdvanceFrom, legacyStartup }, rebuild ? compileMs * REPLAY_BUDGET_SCALE : compileMs);
+        return await call(entry, gameId, 'load', { source, seed, levelIndex, rebuild }, rebuild ? compileMs * REPLAY_BUDGET_SCALE : compileMs);
       } catch (e) {
         if (gameToWorker.get(gameId) === entry) { entry.games.delete(gameId); gameToWorker.delete(gameId); }
         throw e;
