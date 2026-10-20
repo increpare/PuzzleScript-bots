@@ -6,9 +6,19 @@ const { GistError } = require('./gists');
 // and replay posts a fresh normal game. None of these is a game input.
 const ACTIONS = ['up', 'left', 'down', 'right', 'action', 'undo', 'restart', 'continue', 'moves', 'tweak', 'again', 'replay'];
 const ACTION_EMOJI = { left: '⬅️', up: '⬆️', down: '⬇️', right: '➡️', action: '*️⃣', undo: '↩️', restart: '🔄', continue: '▶️', moves: '⌨️', tweak: '✏️', again: '🔁', replay: '🔁' };
+let controlEmojis = ACTION_EMOJI;
+
+// The live bot installs its application-owned emoji before serving interactions. Keeping the
+// Unicode defaults also lets presentation be used without connecting to Discord.
+function setControlEmojis(emojis) {
+  for (const action of ACTIONS) {
+    if (!emojis[action] || !emojis[action].id) throw new Error('missing control emoji: ' + action);
+  }
+  controlEmojis = { ...emojis };
+}
 
 function button(action, style = ButtonStyle.Secondary) {
-  return new ButtonBuilder().setCustomId('ps:' + action).setEmoji(ACTION_EMOJI[action]).setStyle(style);
+  return new ButtonBuilder().setCustomId('ps:' + action).setEmoji(controlEmojis[action]).setStyle(style);
 }
 
 // tweak: the level editor is offered here. again: this is a sent level, which can be played again once solved.
@@ -20,7 +30,7 @@ function buildComponents(snapshot, meta, { tweak = false, again = false } = {}) 
     if (tweak) row.push(button('tweak'));
     return [new ActionRowBuilder().addComponents(...row)];
   }
-  if (snapshot.kind === 'finished') return [new ActionRowBuilder().addComponents(button('replay').setLabel('Play again'))];
+  if (snapshot.kind === 'finished') return [new ActionRowBuilder().addComponents(button('replay').setLabel('New game'))];
   if (snapshot.kind !== 'level') return [];
   const flags = (meta && meta.flags) || {};
   if (snapshot.animating) {
@@ -190,5 +200,5 @@ function workshopDoor() {
 
 module.exports = {
   buildComponents, buildEmbed, levelFile, parseCustomId, userMessage, workshopDoor, movesModal, typedShortfall, spriteModal, spriteMessage, spriteProblems,
-  WORKSHOP_BUTTON, MOVES_MODAL, MOVES_FIELD, SPRITE_MODAL, SPRITE_FIELD, ACTION_EMOJI,
+  WORKSHOP_BUTTON, MOVES_MODAL, MOVES_FIELD, SPRITE_MODAL, SPRITE_FIELD, ACTION_EMOJI, setControlEmojis,
 };

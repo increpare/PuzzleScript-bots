@@ -1,0 +1,74 @@
+[
+  {
+    "name": "left",
+    "label": "Left",
+    "svg": "left.svg",
+    "png": "left.png"
+  },
+  {
+    "name": "up",
+    "label": "Up",
+    "svg": "up.svg",
+    "png": "up.png"
+  },
+  {
+    "name": "down",
+    "label": "Down",
+    "svg": "down.svg",
+    "png": "down.png"
+  },
+  {
+    "name": "right",
+    "label": "Right",
+    "svg": "right.svg",
+    "png": "right.png"
+  },
+  {
+    "name": "action",
+    "label": "Action",
+    "svg": "action.svg",
+    "png": "action.png"
+  },
+  {
+    "name": "undo",
+    "label": "Undo",
+    "svg": "undo.svg",
+    "png": "undo.png"
+  },
+  {
+    "name": "restart",
+    "label": "Restart level",
+    "svg": "restart.svg",
+    "png": "restart.png"
+  },
+  {
+    "name": "replay",
+    "label": "New game",
+    "svg": "replay.svg",
+    "png": "replay.png"
+  },
+  {
+    "name": "continue",
+    "label": "Continue",
+    "svg": "continue.svg",
+    "png": "continue.png"
+  },
+  {
+    "name": "moves",
+    "label": "Type moves",
+    "svg": "moves.svg",
+    "png": "moves.png"
+  },
+  {
+    "name": "tweak",
+    "label": "Edit level",
+    "svg": "tweak.svg",
+    "png": "tweak.png"
+  },
+  {
+    "name": "again",
+    "label": "Replay custom level",
+    "svg": "again.svg",
+    "png": "again.png"
+  }
+]

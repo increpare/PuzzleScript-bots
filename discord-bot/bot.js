@@ -1,5 +1,5 @@
 'use strict';
-const { Client, GatewayIntentBits, AttachmentBuilder, MessageFlags, escapeMarkdown } = require('discord.js');
+const { Client, GatewayIntentBits, AttachmentBuilder, MessageFlags, escapeMarkdown, REST } = require('discord.js');
 const { loadConfig } = require('./config');
 const { createPool } = require('./pool');
 const { createGistStore, parseGistId } = require('./gists');
@@ -14,7 +14,7 @@ const { createScores } = require('./scores');
 const { createSourceStore } = require('./sources');
 const {
   buildComponents, buildEmbed, levelFile, parseCustomId, userMessage, workshopDoor, movesModal, typedShortfall, spriteModal, spriteMessage, spriteProblems,
-  WORKSHOP_BUTTON, MOVES_MODAL, MOVES_FIELD, SPRITE_MODAL, SPRITE_FIELD,
+  WORKSHOP_BUTTON, MOVES_MODAL, MOVES_FIELD, SPRITE_MODAL, SPRITE_FIELD, setControlEmojis,
 } = require('./presentation');
 const { parseMoves } = require('./moves');
 const { parseSound, suggestSounds } = require('./sfx');
@@ -38,6 +38,7 @@ const { createThreadIndex } = require('./threads');
 const { createSigner, signingKey } = require('./signing');
 const { createLevelPoster } = require('./level-posts');
 const { playAgain } = require('./play-again');
+const { syncControlIcons } = require('./control-icons');
 
 const TICKET_MS = 24 * 60 * 60 * 1000;
 
@@ -62,6 +63,8 @@ const displayName = (interaction) => (interaction.member && interaction.member.d
 
 async function main() {
   const cfg = loadConfig();
+  setControlEmojis(await syncControlIcons(new REST({ version: '10' }).setToken(cfg.discordToken), cfg.appId));
+  console.log('custom control icons ready');
   const pool = createPool({ size: 2 });
   // All game source text lives in one store (99 MB cap); the gist index (1 MB) only points into it.
   const sources = createSourceStore({ dataDir: cfg.dataDir });
