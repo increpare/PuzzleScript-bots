@@ -6,12 +6,10 @@ const { GistError } = require('./gists');
 // editor and again starts a solved sent level afresh (see bot.js); none reaches the game registry as
 // an input.
 const ACTIONS = ['up', 'left', 'down', 'right', 'action', 'undo', 'restart', 'continue', 'moves', 'tweak', 'again'];
-const CONTROL_LABEL = { left: '←', up: '↑', down: '↓', right: '→', action: 'A', undo: '↶', restart: '⟲' };
-const ACTION_EMOJI = { continue: '▶️', moves: '⌨️', tweak: '✏️', again: '🔁' };
+const ACTION_EMOJI = { left: '⬅️', up: '⬆️', down: '⬇️', right: '➡️', action: '*️⃣', undo: '↩️', restart: '🔄', continue: '▶️', moves: '⌨️', tweak: '✏️', again: '🔁' };
 
 function button(action, style = ButtonStyle.Secondary) {
-  const control = new ButtonBuilder().setCustomId('ps:' + action).setStyle(style);
-  return CONTROL_LABEL[action] ? control.setLabel(CONTROL_LABEL[action]) : control.setEmoji(ACTION_EMOJI[action]);
+  return new ButtonBuilder().setCustomId('ps:' + action).setEmoji(ACTION_EMOJI[action]).setStyle(style);
 }
 
 // tweak: the level editor is offered here. again: this is a sent level, which can be played again once solved.
