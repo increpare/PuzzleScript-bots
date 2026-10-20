@@ -100,17 +100,17 @@ test('the footer says why the move buttons are gone', () => {
   const record = { meta: meta({}), status: 'playing', lastMover: 'increpare' };
   const footer = (animating) => buildEmbed({ record, snapshot: { kind: 'level', levelNumber: 1, realLevelCount: 3, animating }, attachmentName: 'f.gif' }).toJSON().footer.text;
   assert.equal(footer(null), 'Level 1 of 3 (Last move: increpare)');
-  assert.equal(footer('loop'), 'Level 1 of 3 (Last move: increpare) · looping: undo or restart');
-  assert.equal(footer('more'), 'Level 1 of 3 (Last move: increpare) · still animating: continue, undo or restart');
+  assert.equal(footer('loop'), 'Level 1 of 3 (Last move: increpare) - looping: undo or restart');
+  assert.equal(footer('more'), 'Level 1 of 3 (Last move: increpare) - still animating: continue, undo or restart');
 });
 
 test('the footer only suggests what the game allows, and says nothing while a message is up', () => {
   const footer = (animating, flags, kind = 'level') => buildEmbed({ record: { meta: meta(flags), status: 'playing' }, snapshot: { kind, levelNumber: 1, realLevelCount: 3, animating }, attachmentName: 'f.gif' }).toJSON().footer.text;
-  assert.equal(footer('loop', { noundo: true }), 'Level 1 of 3 · looping: restart');
-  assert.equal(footer('loop', { norestart: true }), 'Level 1 of 3 · looping: undo');
-  assert.equal(footer('loop', { noundo: true, norestart: true }), 'Level 1 of 3 · looping, and this game has no undo or restart');
-  assert.equal(footer('more', { noundo: true }), 'Level 1 of 3 · still animating: continue or restart');
-  assert.equal(footer('more', { noundo: true, norestart: true }), 'Level 1 of 3 · still animating: continue');
+  assert.equal(footer('loop', { noundo: true }), 'Level 1 of 3 - looping: restart');
+  assert.equal(footer('loop', { norestart: true }), 'Level 1 of 3 - looping: undo');
+  assert.equal(footer('loop', { noundo: true, norestart: true }), 'Level 1 of 3 - looping, and this game has no undo or restart');
+  assert.equal(footer('more', { noundo: true }), 'Level 1 of 3 - still animating: continue or restart');
+  assert.equal(footer('more', { noundo: true, norestart: true }), 'Level 1 of 3 - still animating: continue');
   assert.equal(footer('loop', {}, 'message'), 'Level 1 of 3', 'the only button on a message is continue, and it only dismisses the message');
   assert.equal(footer('more', {}, 'message'), 'Level 1 of 3');
 });

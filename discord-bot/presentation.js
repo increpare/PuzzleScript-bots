@@ -122,9 +122,9 @@ function footerText(record, snapshot, sent) {
   if (snapshot.animating === 'more') ways.push('continue');
   if (!flags.noundo) ways.push('undo');
   if (!flags.norestart) ways.push('restart');
-  if (ways.length === 0) return text + ' · looping, and this game has no undo or restart';
+  if (ways.length === 0) return text + ' - looping, and this game has no undo or restart';
   const list = ways.length === 1 ? ways[0] : ways.slice(0, -1).join(', ') + ' or ' + ways[ways.length - 1];
-  return text + (snapshot.animating === 'more' ? ' · still animating: ' : ' · looping: ') + list;
+  return text + (snapshot.animating === 'more' ? ' - still animating: ' : ' - looping: ') + list;
 }
 
 // A level's text goes in the embed as a code block when it is short enough to read there and has

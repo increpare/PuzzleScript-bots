@@ -159,14 +159,14 @@ window.WorkshopNavigation = {
       const syncDeadline = Date.now() + 5000;
       // A pending request is feedback, not yet a five-second broadcast. Allow time for sync
       // and a bounded POST; acceptance starts the actual signal's lifetime.
-      const preview = { id: clientId, clientId, name: self.name, color: self.color, pos, until: syncDeadline + 11000, pending: true, local: true, message: ' · sending…' };
+      const preview = { id: clientId, clientId, name: self.name, color: self.color, pos, until: syncDeadline + 11000, pending: true, local: true, message: ' - sending…' };
       view.dispatch({ effects: setSignals.of([...view.state.field(signalsField).filter((s) => !ownRequests.has(s.clientId)), preview]) });
       showSignalsDeadline();
       function fail(reason) {
         const current = view.state.field(signalsField).find((s) => s.clientId === clientId);
         // A delivered broadcast can win the race against a lost POST response.
         if (clientId !== latestRequest || ownRequests.get(clientId) || (current && !current.local)) return;
-        replaceLocal(clientId, { pending: false, message: ' · not sent', until: Date.now() + 5000 });
+        replaceLocal(clientId, { pending: false, message: ' - not sent', until: Date.now() + 5000 });
         say(escapeMessage('Workshop: the signal was not sent (' + reason + ').'));
       }
       function send() {
