@@ -13,5 +13,5 @@ before normal move handling in `bot.js`; reuse the existing registry and frame f
 - [x] Run focused tests, both bots' suites and `git diff --check`.
 - [x] Document the interaction and review the final diff.
 
-Verification: the clean release based on master passed all 435 Discord tests and
-all 133 Twitch tests. JavaScript syntax checks and `git diff --check` passed.
+Verification: the integrated release on master passed all 423 Discord tests and
+all 133 Twitch tests. The final control definitions and `git diff --check` passed.

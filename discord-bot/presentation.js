@@ -2,10 +2,10 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, LabelBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, escapeMarkdown } = require('discord.js');
 const { GistError } = require('./gists');
 
-// moves opens a typing box, tweak opens the editor, again restarts a solved sent level,
+// moves opens a typing box, tweak opens the level editor, again restarts a solved sent level,
 // and replay posts a fresh normal game. None of these is a game input.
 const ACTIONS = ['up', 'left', 'down', 'right', 'action', 'undo', 'restart', 'continue', 'moves', 'tweak', 'again', 'replay'];
-const ACTION_EMOJI = { left: '⬅️', up: '⬆️', down: '⬇️', right: '➡️', action: '✖️', undo: '↩️', restart: '🔄', continue: '▶️', moves: '⌨️', tweak: '✏️', again: '🔁', replay: '🔁' };
+const ACTION_EMOJI = { left: '⬅️', up: '⬆️', down: '⬇️', right: '➡️', action: '*️⃣', undo: '↩️', restart: '🔄', continue: '▶️', moves: '⌨️', tweak: '✏️', again: '🔁', replay: '🔁' };
 
 function button(action, style = ButtonStyle.Secondary) {
   return new ButtonBuilder().setCustomId('ps:' + action).setEmoji(ACTION_EMOJI[action]).setStyle(style);
@@ -33,7 +33,7 @@ function buildComponents(snapshot, meta, { tweak = false, again = false } = {}) 
     return row.length ? [new ActionRowBuilder().addComponents(...row)] : [];
   }
   const row1 = [button('left'), button('up'), button('down'), button('right')];
-  if (!flags.noaction) row1.push(button('action', ButtonStyle.Primary));
+  if (!flags.noaction) row1.push(button('action'));
   const row2 = [];
   if (!flags.noundo) row2.push(button('undo'));
   if (!flags.norestart) row2.push(button('restart'));
