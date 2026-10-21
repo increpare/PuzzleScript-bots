@@ -15,7 +15,7 @@ async function playAgain(interaction, { registry, frame }) {
   await interaction.deferReply();
   try {
     const reply = await interaction.fetchReply();
-    const { record, snapshot } = await registry.start({ gameId: reply.id, channelId: interaction.channelId, gistId: old.gistId });
+    const { record, snapshot } = await registry.start({ gameId: reply.id, channelId: interaction.channelId, gistId: old.gistId, requestedBy: interaction.user.id });
     if (record.meta.flags.realtime) {
       registry.markDead(record.gameId, 'realtime game');
       await interaction.editReply({ content: 'realtime games cannot be played here (this one sets realtime_interval)' });

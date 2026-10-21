@@ -146,7 +146,7 @@ async function main() {
       const message = await channel.send({ content: 'Starting it…' });
       answer.where = '#' + channel.name;
       try {
-        const { record, snapshot } = await registry.start({ gameId: message.id, channelId: channel.id, gistId: made.id });
+        const { record, snapshot } = await registry.start({ gameId: message.id, channelId: channel.id, gistId: made.id, requestedBy: uid });
         if (record.meta.flags.realtime) {
           registry.markDead(record.gameId, 'realtime game');
           await message.edit({ content: 'It is a realtime game, which cannot be played here. Play it at ' + made.playUrl });
@@ -332,7 +332,7 @@ async function main() {
         console.log('play deferred', Date.now() - t0, 'ms');
         const reply = await interaction.fetchReply();
         try {
-          const { record, snapshot } = await registry.start({ gameId: reply.id, channelId: interaction.channelId, gistId, startLevelNumber: levelNumber });
+          const { record, snapshot } = await registry.start({ gameId: reply.id, channelId: interaction.channelId, gistId, startLevelNumber: levelNumber, requestedBy: interaction.user.id });
           console.log('play started', Date.now() - t0, 'ms');
           if (record.meta.flags.realtime) {
             registry.markDead(record.gameId, 'realtime game');

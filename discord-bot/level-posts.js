@@ -77,7 +77,7 @@ function createLevelPoster({ registry, levels, pool, sources, getSource, threads
     // A game is known by the id of its message, so the message has to exist before the game does.
     const message = await thread.send({ content: 'A new level is on its way…' });
     try {
-      const { record, snapshot } = await registry.start({ gameId: message.id, channelId: thread.id, gistId: level.gistId, level });
+      const { record, snapshot } = await registry.start({ gameId: message.id, channelId: thread.id, gistId: level.gistId, level, requestedBy: ticket.uid });
       await message.edit(frame(record, snapshot, { channelId: thread.id, parentId: thread.parentId || null }));
     } catch (e) {
       await message.edit({ content: 'This level could not be started.' }).catch(() => {});

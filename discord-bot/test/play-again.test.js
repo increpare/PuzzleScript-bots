@@ -13,7 +13,7 @@ const { playAgain } = require('../play-again');
 function interaction() {
   const calls = [];
   return {
-    channelId: 'channel', message: { id: 'old' }, calls,
+    channelId: 'channel', message: { id: 'old' }, user: { id: '123456789012345678' }, calls,
     async reply(payload) { calls.push(['reply', payload]); },
     async deferReply() { calls.push(['defer']); },
     async fetchReply() { return { id: 'new', url: 'https://discord.com/channels/guild/channel/new' }; },
@@ -28,7 +28,7 @@ test('replay posts only a new game from the beginning', async (t) => {
   const pool = createPool({ size: 1 });
   const registry = createRegistry({ dataDir: dir, pool, getSource: async () => source });
   t.after(async () => { await registry.close(); await pool.close(); fs.rmSync(dir, { recursive: true, force: true }); });
-  const { record } = await registry.start({ gameId: 'old', channelId: 'channel', gistId: 'sok', startLevelNumber: 2 });
+  const { record } = await registry.start({ gameId: 'old', channelId: 'channel', gistId: 'sok', startLevelNumber: 2, requestedBy: '987654321098765432' });
   record.status = 'finished';
   record.lastMover = 'Ada';
   record.inputs.push('right');
@@ -43,6 +43,7 @@ test('replay posts only a new game from the beginning', async (t) => {
   assert.deepEqual(fresh.inputs, []);
   assert.equal(fresh.status, 'playing');
   assert.equal(fresh.lastMover, undefined);
+  assert.equal(fresh.requestedBy, press.user.id);
   assert.deepEqual(registry.get('old'), original);
   assert.deepEqual(press.calls, [['defer'], ['edit', { id: 'new', kind: 'level' }]]);
 });

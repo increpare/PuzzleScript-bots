@@ -153,8 +153,11 @@ function buildEmbed({ record, snapshot, attachmentName, level = null }) {
   const e = new EmbedBuilder()
     .setTitle(title.slice(0, 256))
     .setFooter({ text: footerText(record, snapshot, level).slice(0, 2048) });
-  if (level) e.setDescription(fitsInEmbed(level.text) ? '```\n' + level.text + '\n```' : 'Level text attached.');
-  else if (meta.author) e.setDescription(('by ' + meta.author).slice(0, 1000));
+  const description = [];
+  if (level) description.push(fitsInEmbed(level.text) ? '```\n' + level.text + '\n```' : 'Level text attached.');
+  else if (meta.author) description.push(('by ' + meta.author).slice(0, 1000));
+  if (record.requestedBy) description.push('for <@' + record.requestedBy + '>');
+  if (description.length) e.setDescription(description.join('\n'));
   if (record.gistId) e.setURL('https://www.puzzlescript.net/play.html?p=' + record.gistId);
   if (attachmentName) e.setImage('attachment://' + attachmentName);
   return e;

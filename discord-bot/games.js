@@ -214,13 +214,14 @@ function createRegistry({ dataDir, pool, getSource, maxLive = 30, now = Date.now
   return {
     // startLevelNumber counts real levels from 1, skipping message screens.
     // level: a sent level (a record from the level store). The game is then that one level.
-    async start({ gameId, channelId, gistId, startLevelNumber = 1, level = null }) {
+    async start({ gameId, channelId, gistId, startLevelNumber = 1, level = null, requestedBy = null }) {
       if (closed) throw closedError();
       markBusy(gameId);
       try {
       if (level) gistId = level.gistId;
       const source = level ? await levelSource(level) : await getSource(gistId);
       const rec = { gameId, channelId, gistId, seed: gameId, sourceHash: sha256(source), startLevel: 0, inputs: [], status: 'playing', meta: null, createdAt: now(), updatedAt: now() };
+      if (requestedBy) rec.requestedBy = String(requestedBy);
       if (level) rec.levelId = level.id;
       rec.meta = await pool.load(gameId, source, rec.seed, 0);
       if (!level && startLevelNumber > 1) {

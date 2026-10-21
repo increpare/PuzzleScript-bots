@@ -2,7 +2,9 @@
 
 Play a PuzzleScript game inside a Discord channel. `/play <gist>` posts the
 level as an image with move, action, undo and restart buttons. Anyone in the
-channel can press them. Realtime games are not supported.
+channel can press them. Each new game shows **for @username** above its image to identify
+who started it, without pinging them. The attribution stays as others play and across bot
+restarts. Realtime games are not supported.
 
 Finished games offer **Replay game**, which posts a fresh game from the beginning in
 the same channel and keeps the completed game intact. Solved custom levels keep their existing replay

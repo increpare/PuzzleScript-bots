@@ -40,6 +40,25 @@ test('embed carries title, author, level footer and attachment image', () => {
   assert.equal(dead.footer.text, 'stopped: timeout');
 });
 
+test('game embeds identify the requester throughout play and after finishing', () => {
+  const record = { meta: meta({}), status: 'playing', requestedBy: '123456789012345678', lastMover: 'Someone else' };
+  for (const kind of ['level', 'message', 'finished']) {
+    const e = buildEmbed({ record, snapshot: { kind, levelIndex: 0, levelCount: 3 }, attachmentName: 'frame.png' }).toJSON();
+    assert.equal(e.description, 'by A\nfor <@123456789012345678>');
+  }
+  const noAuthor = buildEmbed({ record: { ...record, meta: {} }, snapshot: { kind: 'level' }, attachmentName: null }).toJSON();
+  assert.equal(noAuthor.description, 'for <@123456789012345678>');
+});
+
+test('custom-level attribution keeps the level text', () => {
+  const e = buildEmbed({
+    record: { meta: meta({}), status: 'playing', requestedBy: '123456789012345678' },
+    snapshot: { kind: 'level' }, attachmentName: 'frame.png',
+    level: { authorName: 'Ada', text: '###\n#p#\n###' },
+  }).toJSON();
+  assert.equal(e.description, '```\n###\n#p#\n###\n```\nfor <@123456789012345678>');
+});
+
 test('overlong titles are truncated to 256 characters', () => {
   const record = { meta: Object.assign(meta({}), { title: 'x'.repeat(300) }), status: 'playing' };
   const e = buildEmbed({ record, snapshot: { kind: 'level', levelIndex: 0, levelCount: 3 }, attachmentName: null }).toJSON();

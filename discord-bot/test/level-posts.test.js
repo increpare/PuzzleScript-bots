@@ -83,6 +83,7 @@ test('a sent level becomes a game in a thread started on the game it was made fr
   assert.equal(channel.standalone, 0); // it was started on the game's message
   assert.equal(thread.sent.length, 1);
   const message = thread.sent[0];
+  assert.equal(registry.get(message.id).requestedBy, 'u1');
   assert.equal(r.url, 'https://discord.com/channels/G/' + thread.id + '/' + message.id);
   assert.equal(message.payload.framed, true);
   assert.equal(message.payload.kind, 'level');

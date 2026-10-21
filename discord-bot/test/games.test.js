@@ -68,15 +68,17 @@ test('loadAll restores records from disk and presses keep working', async () => 
   const dir = tmp();
   const pool = createPool({ size: 1 });
   let reg = createRegistry({ dataDir: dir, pool, getSource });
-  await reg.start({ gameId: 'p', channelId: 'c', gistId: 'sok' });
+  await reg.start({ gameId: 'p', channelId: 'c', gistId: 'sok', requestedBy: '123456789012345678' });
   await reg.press('p', 'right');
   await reg.close();
   reg = createRegistry({ dataDir: dir, pool, getSource });
   try {
     assert.equal(reg.loadAll(), 1);
     assert.deepEqual(reg.get('p').inputs, ['right']);
+    assert.equal(reg.get('p').requestedBy, '123456789012345678');
     const r = await reg.press('p', 'undo');
     assert.equal(r.applied, true);
+    assert.equal(r.record.requestedBy, '123456789012345678');
   } finally { await reg.close(); await pool.close(); }
 });
 
