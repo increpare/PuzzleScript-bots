@@ -30,7 +30,7 @@ function buildComponents(snapshot, meta, { tweak = false, again = false } = {}) 
     if (tweak) row.push(button('tweak'));
     return [new ActionRowBuilder().addComponents(...row)];
   }
-  if (snapshot.kind === 'finished') return [new ActionRowBuilder().addComponents(button('replay').setLabel('New game'))];
+  if (snapshot.kind === 'finished') return [new ActionRowBuilder().addComponents(button('replay').setLabel('Replay game'))];
   if (snapshot.kind !== 'level') return [];
   const flags = (meta && meta.flags) || {};
   if (snapshot.animating) {

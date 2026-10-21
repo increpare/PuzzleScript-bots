@@ -58,7 +58,7 @@ test('a retry reuses completed uploads after a partial failure and retains older
   assert.equal(new Set(Object.values(icons).map(e => e.id)).size, 12);
 });
 
-test('all game states use the configured custom icons and the new game label', async () => {
+test('all game states use the configured custom icons and the replay game label', async () => {
   const icons = await syncControlIcons(discord(), 'app');
   setControlEmojis(icons);
   const meta = { flags: {} };
@@ -77,7 +77,7 @@ test('all game states use the configured custom icons and the new game label', a
         seen.add(action);
         assert.equal(button.emoji.id, icons[action].id);
         assert.equal(button.emoji.name, icons[action].name);
-        if (action === 'replay') assert.equal(button.label, 'New game');
+        if (action === 'replay') assert.equal(button.label, 'Replay game');
       }
     }
   }

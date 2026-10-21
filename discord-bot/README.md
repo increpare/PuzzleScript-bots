@@ -4,13 +4,13 @@ Play a PuzzleScript game inside a Discord channel. `/play <gist>` posts the
 level as an image with move, action, undo and restart buttons. Anyone in the
 channel can press them. Realtime games are not supported.
 
-Finished games offer **New game**, which posts a fresh game from the beginning in
+Finished games offer **Replay game**, which posts a fresh game from the beginning in
 the same channel and keeps the completed game intact. A private jump link takes you
 to the new post if it is out of view. Solved custom levels keep their existing replay
 button, which restarts the level in place.
 
 Controls use matching blue-tile custom emoji owned by the Discord application. Startup reuses
-existing uploads and creates missing icons from `icons/controls/`. Action is a circled X; New game
+existing uploads and creates missing icons from `icons/controls/`. Action is a circled X; Replay game
 is a plus. Uploaded versions are retained so icons on older messages still work. No guild emoji
 slots or extra server permissions are needed. SVG sources and 128px PNGs are committed; run
 `node scripts/build-control-icons.js` after editing an SVG to rebuild its PNG.

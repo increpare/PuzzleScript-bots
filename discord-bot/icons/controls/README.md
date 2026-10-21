@@ -1,6 +1,6 @@
 # Control icons
 
-Approved white symbols on blue (`#3B88C3`) tiles. Action uses a circled X and New game uses a plus.
+Approved white symbols on blue (`#3B88C3`) tiles. Action uses a circled X and Replay game uses a plus.
 The manifest associates game inputs and interface actions with their SVG source and 128x128 PNG.
 Rebuild with `node scripts/build-control-icons.js` from `discord-bot/`.
 

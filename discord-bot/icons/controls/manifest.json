@@ -43,7 +43,7 @@
   },
   {
     "name": "replay",
-    "label": "New game",
+    "label": "Replay game",
     "svg": "replay.svg",
     "png": "replay.png"
   },

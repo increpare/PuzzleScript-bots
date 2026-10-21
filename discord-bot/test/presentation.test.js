@@ -25,7 +25,7 @@ test('message frames get continue; finished games get a labelled fresh replay bu
   assert.deepEqual(ids(buildComponents({ kind: 'message' }, meta({}))), [['ps:continue']]);
   const rows = buildComponents({ kind: 'finished' }, meta({}));
   assert.deepEqual(ids(rows), [['ps:replay']]);
-  assert.equal(rows[0].toJSON().components[0].label, 'New game');
+  assert.equal(rows[0].toJSON().components[0].label, 'Replay game');
   assert.equal(parseCustomId('ps:replay'), 'replay');
 });
 
