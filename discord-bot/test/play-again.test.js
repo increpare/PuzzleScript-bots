@@ -22,7 +22,7 @@ function interaction() {
   };
 }
 
-test('replay posts a new game from the beginning and gives a private jump link', async (t) => {
+test('replay posts only a new game from the beginning', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-replay-'));
   const source = fs.readFileSync(path.join(SRC_DIR, 'demo', 'sokoban_basic.txt'), 'utf8');
   const pool = createPool({ size: 1 });
@@ -44,10 +44,7 @@ test('replay posts a new game from the beginning and gives a private jump link',
   assert.equal(fresh.status, 'playing');
   assert.equal(fresh.lastMover, undefined);
   assert.deepEqual(registry.get('old'), original);
-  assert.deepEqual(press.calls.slice(0, 2), [['defer'], ['edit', { id: 'new', kind: 'level' }]]);
-  const jump = press.calls[2][1];
-  assert.equal(jump.flags, MessageFlags.Ephemeral);
-  assert.match(jump.content, /\[.*\]\(<https:\/\/discord.com\/channels\/guild\/channel\/new>\)/);
+  assert.deepEqual(press.calls, [['defer'], ['edit', { id: 'new', kind: 'level' }]]);
 });
 
 test('unavailable, playing and sent-level games do not create a replay', async () => {

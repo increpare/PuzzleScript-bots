@@ -2,8 +2,7 @@
 const { MessageFlags } = require('discord.js');
 const { userMessage } = require('./presentation');
 
-// A fresh public reply leaves the completed post intact. Discord cannot be told to scroll
-// the player's client, so a private jump link takes them to the new game if it is out of view.
+// A fresh public reply leaves the completed post intact.
 async function playAgain(interaction, { registry, frame }) {
   const old = registry.get(interaction.message.id);
   if (!old || old.status !== 'finished' || old.levelId) {
@@ -14,9 +13,8 @@ async function playAgain(interaction, { registry, frame }) {
     return;
   }
   await interaction.deferReply();
-  let reply;
   try {
-    reply = await interaction.fetchReply();
+    const reply = await interaction.fetchReply();
     const { record, snapshot } = await registry.start({ gameId: reply.id, channelId: interaction.channelId, gistId: old.gistId });
     if (record.meta.flags.realtime) {
       registry.markDead(record.gameId, 'realtime game');
@@ -28,8 +26,6 @@ async function playAgain(interaction, { registry, frame }) {
     await interaction.editReply({ content: userMessage(err, 'start') });
     return;
   }
-  await interaction.followUp({ content: '[Jump to the new game](<' + reply.url + '>).', flags: MessageFlags.Ephemeral })
-    .catch((err) => console.error('replay jump link failed', err && err.code));
 }
 
 module.exports = { playAgain };

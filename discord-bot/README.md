@@ -5,8 +5,7 @@ level as an image with move, action, undo and restart buttons. Anyone in the
 channel can press them. Realtime games are not supported.
 
 Finished games offer **Replay game**, which posts a fresh game from the beginning in
-the same channel and keeps the completed game intact. A private jump link takes you
-to the new post if it is out of view. Solved custom levels keep their existing replay
+the same channel and keeps the completed game intact. Solved custom levels keep their existing replay
 button, which restarts the level in place.
 
 Controls use matching blue-tile custom emoji owned by the Discord application. Startup reuses
