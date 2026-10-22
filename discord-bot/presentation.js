@@ -156,7 +156,6 @@ function buildEmbed({ record, snapshot, attachmentName, level = null }) {
   const description = [];
   if (level) description.push(fitsInEmbed(level.text) ? '```\n' + level.text + '\n```' : 'Level text attached.');
   else if (meta.author) description.push(('by ' + meta.author).slice(0, 1000));
-  if (record.requestedBy) description.push('for <@' + record.requestedBy + '>');
   if (description.length) e.setDescription(description.join('\n'));
   if (record.gistId) e.setURL('https://www.puzzlescript.net/play.html?p=' + record.gistId);
   if (attachmentName) e.setImage('attachment://' + attachmentName);
