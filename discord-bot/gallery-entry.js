@@ -1,5 +1,6 @@
 'use strict';
 const vm = require('node:vm');
+const { parseGistId } = require('./gists');
 
 // Something about a gallery submission, or the list it is to join, that is not as it should be.
 // Its message is fit to show to whoever is submitting.
@@ -34,10 +35,9 @@ function readRecords(text) {
   return list;
 }
 
-// The gist a record's play link points at, or null.
+// External game pages can provide a separate play, editor or gist source link.
 function gistOf(record) {
-  const m = /[?&]p=([0-9a-f]+)/i.exec(String((record && record.url) || ''));
-  return m ? m[1].toLowerCase() : null;
+  return parseGistId(record && record.source) || parseGistId(record && record.url);
 }
 
 function hasGist(text, gistId) {

@@ -40,6 +40,19 @@ Typing `/play` suggests games: those of the puzzlescript.net gallery first, mark
 games listed in `community-games.json` (made from `community-gists.txt` by `scripts/build-community-games.js`).
 Any gist id or play link also works.
 
+Gallery entries may use a separate `source` link when their official URL is an itch.io or other
+game page. Play, editor (`?hack=`) and GitHub gist source links are supported. The source link
+takes priority; an unusable source falls back to the official link. The engine's existing limits,
+including the restriction on realtime games, still apply.
+
+The bot refreshes the public gallery at startup and whenever a new thread is created in releases
+channel `1562643319341715486` in its configured server. `GALLERY_RELEASES_CHANNEL_ID` can override
+the channel. Existing threads the bot joins do not trigger a refresh. The bot must be able to view
+the releases channel; its existing Guilds intent suffices, without reading thread messages.
+Refreshes update `/play` suggestions without restarting. A last good copy lives in
+`data/gallery.json`, survives restarts and is kept if a fetch fails. Without a cached copy, the
+bundled list is used until a fetch succeeds. There is no hourly polling.
+
 ## Deploy
 
     ./deploy.sh
@@ -235,6 +248,10 @@ Each day the bot posts one of David W. Skinner's Sokoban puzzles in the channel 
 ## Scores
 
 Whoever makes the winning move on a level gets credit for it, once per game and level, but only on the server named by `DISCORD_GUILD_ID`: wins anywhere else (another server, a DM) do not count. Ranks rise at 1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90 and 100 levels. Rank-ups are announced in the channel named by `SCORE_CHANNEL_ID` only (or in the game's channel if unset). `/rank` shows your own count privately. Scores live in `data/scores.json`.
+
+`/scoreboard` publicly shows the top 10 players by distinct levels solved, plus your position and count if you are outside the top 10. Names appear as plain text, using server nicknames when available. No profile links or user mentions are sent. Ties are ordered by player ID. Players with no solves are unranked. Run `node register-commands.js` again after updating the bot to make the command available.
+
+New first-time solves also record a Unix timestamp in milliseconds in each player's `solvedAt` map, keyed by game and level. Replays retain the original date. Older solves keep their credit without a date. Timestamps are stored internally and do not change the displayed scores. Tracking starts when this version of the bot is deployed.
 
 ## Keyword roles
 

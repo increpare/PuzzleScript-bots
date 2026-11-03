@@ -82,6 +82,24 @@ test('hasGist finds a game whatever the case of its id', () => {
   assert.strictEqual(hasGist(real, GIST), false);
 });
 
+test('gallery identities prefer source links and fall back to the official play link', () => {
+  const url = 'https://www.puzzlescript.net/play.html?p=1234';
+  for (const source of [
+    'https://www.puzzlescript.net/editor.html?hack=' + GIST.toUpperCase(),
+    'https://www.puzzlescript.net/play.html?p=' + GIST,
+    'https://gist.github.com/author/' + GIST,
+  ]) assert.strictEqual(gistOf({ url, source }), GIST);
+  assert.strictEqual(gistOf({ url, source: 'https://example.com/no-source' }), '1234');
+  assert.strictEqual(gistOf({ url: 'https://example.com/?p=' + GIST }), null);
+  assert.strictEqual(gistOf(null), null);
+});
+
+test('a source-linked game cannot be submitted to the gallery a second time', () => {
+  const text = 'let games_gallery = ' + JSON.stringify([{ url: 'https://author.itch.io/game', source: 'https://www.puzzlescript.net/editor.html?hack=' + GIST }]);
+  assert.strictEqual(hasGist(text, GIST.toUpperCase()), true);
+  assert.throws(() => appendRecord(text, record), /already in the gallery/);
+});
+
 test('a submission is checked and tidied', () => {
   const ok = checkSubmission({ gif: gifOf(64), title: '  A Game ', author: ' Someone', homepage: ' example.com ' });
   assert.strictEqual(ok.title, 'A Game');

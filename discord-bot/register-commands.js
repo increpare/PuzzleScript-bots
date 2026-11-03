@@ -11,6 +11,7 @@ async function main() {
     .addStringOption((o) => o.setName('game').setDescription('Gist id, play.html link, or gist link').setRequired(true).setAutocomplete(true))
     .addIntegerOption((o) => o.setName('level').setDescription('Level to start at (1 = first; message screens are not counted)').setMinValue(1));
   const rank = new SlashCommandBuilder().setName('rank').setDescription('Show how many levels you have solved and your rank');
+  const scoreboard = new SlashCommandBuilder().setName('scoreboard').setDescription('Show the top 10 players by levels solved and your position');
   const role = new SlashCommandBuilder()
     .setName('role')
     .setDescription('Give yourself a PuzzleScript keyword role')
@@ -26,7 +27,7 @@ async function main() {
     .addStringOption((o) => o.setName('sound').setDescription('A sound seed, or a kind of sound to get a new seed for. Leave it out for any kind.').setAutocomplete(true));
   // No options: an object is several lines, so the command opens a box to type it into.
   const sprite = new SlashCommandBuilder().setName('sprite').setDescription('Draw PuzzleScript objects from their text');
-  const commands = [play, rank, role, workshop, sfx, sprite];
+  const commands = [play, rank, scoreboard, role, workshop, sfx, sprite];
   // The owner's command for adding a game to the puzzlescript.net gallery. Discord shows a command
   // with no default permissions to the server's administrators and cannot hide it from them; the
   // bot answers nobody but the owner.

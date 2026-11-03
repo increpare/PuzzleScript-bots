@@ -6,11 +6,13 @@ const { createGistStore, parseGistId } = require('./gists');
 const { createRegistry } = require('./games');
 const { renderSnapshot } = require('./renderer');
 const { loadGames, forgetGallery, suggest } = require('./gallery');
+const { createGallerySync } = require('./gallery-sync');
 const { galleryLink, GALLERY_LINK_MS } = require('./gallery-entry');
 const { createGalleryRepo } = require('./gallery-github');
 const { createGallerySubmitter } = require('./gallery-submit');
 const { SRC_DIR } = require('./engine-src');
 const { createScores } = require('./scores');
+const { showScoreboard } = require('./scoreboard');
 const { createSourceStore } = require('./sources');
 const {
   buildComponents, buildEmbed, levelFile, parseCustomId, userMessage, workshopDoor, movesModal, typedShortfall, spriteModal, spriteMessage, spriteProblems,
@@ -78,6 +80,12 @@ async function main() {
   const scores = createScores({ dataDir: cfg.dataDir });
   let games = loadGames();
   const client = new Client({ intents: [GatewayIntentBits.Guilds], allowedMentions: { parse: [] } });
+  const gallerySync = createGallerySync({
+    dataDir: cfg.dataDir, guildId: cfg.guildId, releasesChannelId: cfg.galleryReleasesChannelId,
+    onRefresh: (gallery) => { games = loadGames({ gallery }); },
+  });
+  gallerySync.restore();
+  client.on('threadCreate', gallerySync.onThread);
 
   // A thread counts as the channel it belongs to.
   const canTweak = (interaction) => tweakAllowed(cfg.tweakChannels, interaction.channelId, (interaction.channel && interaction.channel.parentId) || null);
@@ -213,7 +221,7 @@ async function main() {
     getSource: gists.getSource,
     siteDir: cfg.gallerySiteDir,
     botGamesDat: path.join(SRC_DIR, 'games_dat.js'),
-    onAdded: () => { forgetGallery(); games = loadGames(); },
+    onAdded: () => { forgetGallery(); games = loadGames(); gallerySync.refresh(); },
   }) : null;
   // a wrong directory is better heard of now than when a game has already been committed
   if (gallerySubmitter && !(fs.existsSync(path.join(cfg.gallerySiteDir, 'games_dat.js')) && fs.existsSync(path.join(cfg.gallerySiteDir, 'Gallery', 'gifs')))) {
@@ -362,6 +370,10 @@ async function main() {
         await interaction.reply({ content: 'Play a level of it and submit it to the gallery: [open the gallery page](<' + galleryLink(cfg.workshopPublicUrl, token) + '>). The link is yours alone and lasts six hours.', flags: MessageFlags.Ephemeral });
         return;
       }
+      if (interaction.isChatInputCommand() && interaction.commandName === 'scoreboard') {
+        await showScoreboard(interaction, { scores, users: client.users });
+        return;
+      }
       if (interaction.isChatInputCommand() && interaction.commandName === 'rank') {
         const s = scores.get(interaction.user.id);
         const levels = s.count === 1 ? '1 level' : s.count + ' levels';
@@ -503,6 +515,7 @@ async function main() {
 
   client.once('ready', () => {
     console.log('logged in as', client.user.tag);
+    gallerySync.refresh();
     ensureWorkshopDoor().catch((e) => console.error('the workshop door could not be posted:', 'code', e && e.code, e && e.message));
     try { startSkinnerOfTheDay(); } catch (e) { console.error('the Skinner of the Day could not be set up:', e && e.message); }
   });

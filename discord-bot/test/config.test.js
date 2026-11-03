@@ -119,3 +119,14 @@ test('the gallery is on only when all of its settings and the http server are th
     assert.equal(loadConfig(file).gallery, false, 'without ' + missing);
   }
 });
+
+test('gallery refresh watches the releases channel unless configured otherwise', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-cfg-releases-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, '.env');
+  const base = 'DISCORD_TOKEN=abc\nDISCORD_APP_ID=1\nDISCORD_GUILD_ID=2\nGITHUB_TOKEN=ghp\n';
+  fs.writeFileSync(file, base);
+  assert.equal(loadConfig(file).galleryReleasesChannelId, '1562643319341715486');
+  fs.writeFileSync(file, base + 'GALLERY_RELEASES_CHANNEL_ID=777\n');
+  assert.equal(loadConfig(file).galleryReleasesChannelId, '777');
+});

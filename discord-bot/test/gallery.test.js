@@ -12,6 +12,25 @@ test('loadGallery reads the gallery', () => {
   }
 });
 
+test('source-linked games are suggested once with their gallery title and author', (t) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { forgetGallery } = require('../gallery');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psbot-gal-sources-'));
+  t.after(() => { forgetGallery(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const file = path.join(dir, 'games_dat.js');
+  fs.writeFileSync(file, 'let games_gallery = ' + JSON.stringify([
+    { url: 'https://author.itch.io/game', source: 'https://www.puzzlescript.net/editor.html?hack=AA11', title: 'External Game', author: 'Ann' },
+    { url: 'https://www.puzzlescript.net/play.html?p=aa11', title: 'Duplicate', author: 'Ann' },
+    { url: 'https://author.itch.io/other', source: 'https://gist.github.com/author/BB22', title: 'Other', author: 'Bob' },
+    { url: 'https://author.itch.io/no-source', title: 'Unavailable', author: 'Cat' },
+  ]));
+  const games = loadGames({ gallery: loadGallery(file), community: [game('aa11', 'Community Copy', 'Ann')] });
+  assert.deepStrictEqual(games, [game('aa11', 'External Game', 'Ann', true), game('bb22', 'Other', 'Bob', true)]);
+  assert.deepStrictEqual(suggest(games, 'external'), [{ name: '⭐ External Game — Ann', value: 'aa11' }]);
+});
+
 test('loadGames puts the gallery first and lists no game twice', () => {
   const gallery = loadGallery();
   const games = loadGames();

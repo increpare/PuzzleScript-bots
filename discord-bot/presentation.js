@@ -200,7 +200,24 @@ function workshopDoor() {
   };
 }
 
+function scoreboardMessage({ top, player }, userId) {
+  const lines = ['**Scoreboard**'];
+  if (!top.length) return lines.concat('No levels have been solved yet.').join('\n');
+  const rankWidth = Math.max(2, String(player ? player.position : 0).length, ...top.map((entry) => String(entry.position).length));
+  const row = (entry) => {
+    const medal = ['🥇', '🥈', '🥉'][entry.position - 1] || '';
+    const rawName = String(entry.name || '').replace(/\s+/g, ' ').trim() || 'User ' + entry.userId;
+    const name = escapeMarkdown(rawName).replace(/@/g, '@\u200b');
+    return '`' + String(entry.position).padStart(rankWidth) + '.` ' + name + ' - ' + entry.count
+      + (entry.count === 1 ? ' level' : ' levels') + (medal ? '! ' + medal : '') + (entry.userId === userId ? ' (you)' : '');
+  };
+  lines.push(...top.map(row));
+  if (player && !top.some((entry) => entry.userId === userId)) lines.push('⋮', row(player), '⋮');
+  if (!player) lines.push('', 'You have not solved any levels yet, so you are not ranked.');
+  return lines.join('\n');
+}
+
 module.exports = {
-  buildComponents, buildEmbed, levelFile, parseCustomId, userMessage, workshopDoor, movesModal, typedShortfall, spriteModal, spriteMessage, spriteProblems,
+  buildComponents, buildEmbed, levelFile, parseCustomId, userMessage, workshopDoor, movesModal, typedShortfall, spriteModal, spriteMessage, spriteProblems, scoreboardMessage,
   WORKSHOP_BUTTON, MOVES_MODAL, MOVES_FIELD, SPRITE_MODAL, SPRITE_FIELD, ACTION_EMOJI, setControlEmojis,
 };

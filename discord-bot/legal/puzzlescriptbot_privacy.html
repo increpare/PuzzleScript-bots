@@ -16,13 +16,13 @@
 <body>
 
 <h1>PuzzleScriptBot privacy policy</h1>
-<p class="updated">Last updated 22 October 2026</p>
+<p class="updated">Last updated 23 October 2026</p>
 
 <p>PuzzleScriptBot is a Discord bot for playing PuzzleScript games in a channel. It is run by increpare. This page says what the bot keeps about you, and why.</p>
 
 <h2>What the bot keeps</h2>
 <ul>
-  <li><strong>Your score.</strong> Your Discord user id, with a list of the levels you have solved. Each entry is a game's id and a level number. This is what <code>/rank</code> and the rank announcements are worked out from.</li>
+  <li><strong>Your score.</strong> Your Discord user id, with a list of the levels you have solved. Each entry is a game's id and a level number. New first-time solves also record the date and time you solved them; older solves have no recorded date. Replaying a solved level does not change its date or add to your score. This is what <code>/rank</code>, <code>/scoreboard</code> and the rank announcements are worked out from. Solve dates are stored internally and are not displayed.</li>
   <li><strong>Games.</strong> For each game: the ids of the message and channel it is in, which game it is, and the moves made in it. For games started by a person, the bot also keeps that person's Discord user id as the requester; for replays, this is the person who requested the replay. This requester is not displayed on the game. The bot does not record who made each move. It does keep the display name of whoever made the most recent move, which is shown under the game as "Last move".</li>
   <li><strong>Levels you send.</strong> A level made with the level editor is kept with your Discord user id and the display name you had when you sent it. The name is shown on the level.</li>
   <li><strong>Levels you solve.</strong> When you solve a level that someone sent, your user id and display name are kept with that level, and the name is shown on it.</li>
@@ -42,12 +42,12 @@
 </ul>
 
 <h2>What other people can see</h2>
-<p>A game, its "Last move" name, a sent level with its author and solvers, and rank announcements are posted in the channel, where everyone in that channel can see them. When you press Share in the workshop, the bot starts a game of it in a channel and says there that you shared it. Whatever you type in the workshop is seen by everyone who has it open, along with your Discord display name and where your cursor is. The bot keeps your name and cursor only while you are there. A code signal shows your name and the marked position to everyone in the workshop for five seconds. Anyone given an export download link can download that file while the link is valid. A sound made with <code>/sfx</code> and a picture made with <code>/sprite</code> are posted in the channel, the picture together with the text you typed for it. Replies to <code>/rank</code> and <code>/role</code> are shown only to you.</p>
+<p>A game, its "Last move" name, a sent level with its author and solvers, and rank announcements are posted in the channel, where everyone in that channel can see them. Replies to <code>/scoreboard</code> are also public: they show the top 10 players and their solved-level counts, plus the caller's position and count if outside the top 10. When you press Share in the workshop, the bot starts a game of it in a channel and says there that you shared it. Whatever you type in the workshop is seen by everyone who has it open, along with your Discord display name and where your cursor is. The bot keeps your name and cursor only while you are there. A code signal shows your name and the marked position to everyone in the workshop for five seconds. Anyone given an export download link can download that file while the link is valid. A sound made with <code>/sfx</code> and a picture made with <code>/sprite</code> are posted in the channel, the picture together with the text you typed for it. Replies to <code>/rank</code> and <code>/role</code> are shown only to you.</p>
 
 <h2>Where it is kept, and for how long</h2>
 <ul>
   <li>Everything is kept on a server run by increpare. Nothing is sold, passed on, or used for advertising or analytics.</li>
-  <li>Scores are kept until you ask for them to be removed.</li>
+  <li>Scores, including recorded solve dates, are kept until you ask for them to be removed.</li>
   <li>Sent levels, and the names of their authors and solvers, are kept until you ask for yours to be removed.</li>
   <li>Games are kept until newer ones push them out. The bot holds about 1 MB of them, and when that is full it deletes finished games first, then the ones played least recently.</li>
   <li>Workshop export links expire after 15 minutes, or sooner if the export cache fills or the bot restarts. Signals disappear after five seconds. Both are held only in memory and are discarded when expired entries are next checked.</li>

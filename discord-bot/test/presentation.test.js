@@ -1,7 +1,47 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildComponents, buildEmbed, parseCustomId, movesModal, typedShortfall, spriteModal, spriteMessage, spriteProblems, MOVES_MODAL, MOVES_FIELD, SPRITE_MODAL, SPRITE_FIELD } = require('../presentation');
+const { buildComponents, buildEmbed, parseCustomId, movesModal, typedShortfall, spriteModal, spriteMessage, spriteProblems, scoreboardMessage, MOVES_MODAL, MOVES_FIELD, SPRITE_MODAL, SPRITE_FIELD } = require('../presentation');
+
+test('the scoreboard appends the caller outside the top ten with their actual position', () => {
+  const top = Array.from({ length: 10 }, (_, i) => ({ userId: String(100 + i), name: 'Player' + i, count: 20 - i, position: i + 1 }));
+  const content = scoreboardMessage({ top, player: { userId: '999', name: 'Caller', count: 1, position: 25 } }, '999');
+  assert.match(content, /^\*\*Scoreboard\*\*/);
+  for (const entry of top) {
+    const medal = ['🥇', '🥈', '🥉'][entry.position - 1] || '';
+    const row = '`' + String(entry.position).padStart(2) + '.` ' + entry.name + ' - ' + entry.count + ' levels' + (medal ? '! ' + medal : '');
+    assert.ok(content.split('\n').includes(row));
+  }
+  assert.ok(content.endsWith('\n⋮\n`25.` Caller - 1 level (you)\n⋮'));
+  assert.doesNotMatch(content, /@|https?:\/\/|\]\(/);
+});
+
+test('the scoreboard marks a caller in the top ten without repeating their row', () => {
+  const top = Array.from({ length: 10 }, (_, i) => ({ userId: String(100 + i), name: 'Player' + i, count: 10 - i, position: i + 1 }));
+  for (const player of [top[0], top[9]]) {
+    const content = scoreboardMessage({ top, player }, player.userId);
+    assert.equal(content.split(player.name + ' - ').length - 1, 1);
+    assert.equal((content.match(/\(you\)/g) || []).length, 1);
+    assert.equal(content.split('\n').filter((line) => /^`\s*\d+\.` /.test(line)).length, 10);
+  }
+});
+
+test('the scoreboard explains empty scores and an unranked caller', () => {
+  assert.match(scoreboardMessage({ top: [], player: null }, '999'), /No levels have been solved yet/);
+  const content = scoreboardMessage({ top: [{ userId: '100', name: 'Ada', count: 1, position: 1 }], player: null }, '999');
+  assert.ok(content.includes('` 1.` Ada - 1 level! 🥇'));
+  assert.match(content, /You have not solved any levels yet, so you are not ranked/);
+  assert.doesNotMatch(content, /@|https?:\/\/|\]\(/);
+});
+
+test('scoreboard names are plain text and cannot create markdown or user mentions', () => {
+  const content = scoreboardMessage({
+    top: [{ userId: '100', name: '*Ada*\n<@123>', count: 2, position: 1 }], player: null,
+  }, '999');
+  assert.ok(content.includes('` 1.` \\*Ada\\* <@\u200b123> - 2 levels! 🥇'));
+  assert.doesNotMatch(content, /<@\d|https?:\/\//);
+  assert.equal(content.split('\n').filter((line) => line.includes('levels!')).length, 1);
+});
 
 const meta = (flags) => ({ title: 'T', author: 'A', levelCount: 3, flags: Object.assign({ noaction: false, noundo: false, norestart: false, realtime: false }, flags) });
 const ids = (rows) => rows.map((r) => r.toJSON().components.map((c) => c.custom_id));

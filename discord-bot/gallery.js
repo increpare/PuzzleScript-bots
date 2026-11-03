@@ -1,25 +1,29 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
 const { SRC_DIR } = require('./engine-src');
+const { readRecords, gistOf } = require('./gallery-entry');
 
 // The games /play suggests: the puzzlescript.net gallery, and after it the community's games.
 // {gistId, title, author, starred}: starred marks a gallery game.
 
 let cached = null;
 
+function galleryFromRecords(records) {
+  const gallery = [];
+  const seen = new Set();
+  for (const g of records) {
+    const gistId = gistOf(g);
+    if (!gistId || seen.has(gistId)) continue;
+    seen.add(gistId);
+    gallery.push({ gistId, title: String(g.title || ''), author: String(g.author || ''), starred: true });
+  }
+  return gallery;
+}
+
 function loadGallery(filePath = path.join(SRC_DIR, 'games_dat.js')) {
   if (cached && cached.filePath === filePath) return cached.gallery;
-  const src = fs.readFileSync(filePath, 'utf8');
-  const sandbox = {};
-  vm.runInNewContext(src + '\n;this.__g = games_gallery;', sandbox);
-  const gallery = [];
-  for (const g of sandbox.__g) {
-    const m = /[?&]p=([0-9a-f]+)/i.exec(String((g && g.url) || ''));
-    if (!m) continue;
-    gallery.push({ gistId: m[1], title: String(g.title || ''), author: String(g.author || ''), starred: true });
-  }
+  const gallery = galleryFromRecords(readRecords(fs.readFileSync(filePath, 'utf8')));
   cached = { filePath, gallery };
   return gallery;
 }
@@ -78,4 +82,4 @@ function suggest(games, query, limit = 25) {
   return [].concat(...buckets).slice(0, limit).map(choice);
 }
 
-module.exports = { loadGallery, forgetGallery, loadCommunity, loadGames, suggest };
+module.exports = { loadGallery, galleryFromRecords, forgetGallery, loadCommunity, loadGames, suggest };
