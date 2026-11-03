@@ -61,10 +61,11 @@ function loadPuzzles(dir = SETS_DIR) {
   return puzzles;
 }
 
-// The puzzles the Skinner of the Day is picked from: all but those so big that the bot's frame can
-// only draw them at 5 px a cell (a sprite at its own size), which is too small to play from.
+// The puzzles the Skinner of the Day is picked from: Microban only, excluding those so big that
+// the bot's frame can only draw them at 5 px a cell, which is too small to play from.
 function dailyPuzzles(dir = SETS_DIR) {
   return loadPuzzles(dir).filter((p) => {
+    if (!p.set.startsWith('Microban ')) return false;
     const viewport = { w: Math.max(...p.rows.map((r) => r.length)), h: p.rows.length };
     return levelLayout({ viewport }).scale > 1;
   });

@@ -219,9 +219,10 @@ Each day the bot posts one of David W. Skinner's Sokoban puzzles in the channel 
   it, with one glyph added to the legend, `+` for the player on a target. `skinner.js` writes the game.
 - On the day a puzzle is posted its game is made a public gist under `GIST_TOKEN`'s account, which
   is what the play link points at. A puzzle that comes round again keeps its gist.
-- The puzzle is picked at random from those not yet posted; when all have been, from all again.
-  The 19 puzzles too big to be drawn at more than 5 px a cell (wider than 40 cells or taller than
-  30) are never picked.
+- The daily rota contains 487 Microban puzzles; Sasquatch remains in `skinner/sets/` but is not
+  picked. The puzzle is picked at random from those not yet posted; when all have been, from all
+  again. The six Microban puzzles too big to be drawn at more than 5 px a cell (wider than 40 cells
+  or taller than 30) are never picked.
   It is posted from `SKINNER_HOUR_UTC` on (9 by default), once per day by the UTC calendar. If
   GitHub or Discord fails it is tried again an hour later with the same puzzle. A day on which the
   bot was not running is skipped.

@@ -127,12 +127,14 @@ test('the day\'s puzzle is announced by name, with his page and the game in a br
     .startsWith('**Skinner of the Day: Microban II.132, "The Mixer"**\n'));
 });
 
-test('the puzzles of the day leave out those too big to be drawn at more than 5 px a cell', () => {
+test('the puzzles of the day are playable Microban puzzles, never Sasquatch', () => {
   const all = loadPuzzles();
   const daily = dailyPuzzles();
-  assert.equal(daily.length, 1024);
-  const left = all.filter((p) => !daily.includes(p));
-  assert.equal(left.length, 19);
+  const microban = all.filter((p) => p.set.startsWith('Microban '));
+  assert.equal(daily.length, 487);
+  assert.ok(daily.every((p) => p.set.startsWith('Microban ')));
+  const left = microban.filter((p) => !daily.includes(p));
+  assert.equal(left.length, 6);
   assert.ok(left.some((p) => p.id === 'Microban IV.102')); // 49 by 44
   assert.ok(daily.some((p) => p.id === 'Microban II.3'));
   // as the bot draws them: a sprite is 5 px across, so a scale of 1 is 5 px a cell
